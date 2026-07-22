@@ -119,6 +119,33 @@ def test_missing_bid_is_not_replaced_by_last() -> None:
     assert result.market.last_price_percent == Decimal("99.5")
 
 
+def test_null_accrued_interest_and_non_default_board_are_preserved() -> None:
+    search, specification, market, bondization = payloads()
+    search["securities"] = block(
+        ["isin", "secid", "shortname", "is_traded", "primary_boardid"],
+        ["RU000A107SX3", "RU000A107SX3", "Bond", 1, "TQOD"],
+    )
+    securities = market["securities"]
+    assert isinstance(securities, dict)
+    accrued_index = securities["columns"].index("ACCRUEDINT")
+    board_index = securities["columns"].index("BOARDID")
+    securities["data"][0][accrued_index] = None
+    securities["data"][0][board_index] = "TQOD"
+
+    result = map_refresh_result(
+        isin="RU000A107SX3",
+        search_payload=search,
+        specification_payload=specification,
+        market_payload=market,
+        bondization_payload=bondization,
+        timezone=ZoneInfo("Europe/Moscow"),
+    )
+
+    assert result.instrument.primary_board_id == "TQOD"
+    assert result.market.board_id == "TQOD"
+    assert result.market.accrued_interest_rub_per_bond is None
+
+
 def test_inactive_security_has_no_market_data() -> None:
     search, specification, _, bondization = payloads()
     search["securities"] = block(
