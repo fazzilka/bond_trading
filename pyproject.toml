@@ -48,6 +48,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "C4", "UP", "SIM", "RUF"]
+ignore = ["RUF001"]
 
 [tool.ruff.format]
 quote-style = "double"
