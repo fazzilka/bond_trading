@@ -15,6 +15,7 @@ from bond_trading.core.context import get_request_id
 from bond_trading.core.logging import configure_logging
 from bond_trading.core.metrics import MetricsMiddleware
 from bond_trading.core.middleware import RequestContextMiddleware
+from bond_trading.infrastructure.db.session import Database
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,12 @@ def error_payload(code: str, message: str, details: object = None) -> dict[str, 
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.logging.level)
-    yield
+    database = Database(settings)
+    app.state.database = database
+    try:
+        yield
+    finally:
+        await database.close()
 
 
 def create_app() -> FastAPI:
