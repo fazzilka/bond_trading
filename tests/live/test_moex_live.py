@@ -27,8 +27,6 @@ async def test_initial_instruments_are_available_from_moex(isin: str) -> None:
         timeout=settings.timeout_seconds,
         headers={"User-Agent": settings.user_agent},
     ) as http_client:
-        result = await MoexIssClient(
-            http_client, settings, ZoneInfo("Europe/Moscow")
-        ).refresh(isin)
+        result = await MoexIssClient(http_client, settings, ZoneInfo("Europe/Moscow")).refresh(isin)
 
     assert result.instrument.isin == isin
