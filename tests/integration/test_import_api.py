@@ -1,9 +1,21 @@
 import io
+from dataclasses import replace
 from datetime import datetime
 
 import httpx
 import openpyxl
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from bond_trading.application.services.imports import ImportService
+from bond_trading.infrastructure.db.models import (
+    BondInstrumentModel,
+    BondLotModel,
+    ImportBatchModel,
+)
+from bond_trading.infrastructure.imports import XlsxPortfolioReader
 
 
 def xlsx_bytes() -> bytes:
@@ -116,3 +128,25 @@ async def test_preview_does_not_trust_valid_upload_metadata(
     )
     assert response.status_code == 422
     assert "readable XLSX" in response.json()["message"]
+
+
+async def test_failed_commit_rolls_back_the_entire_import(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    preview = XlsxPortfolioReader().preview(xlsx_bytes(), "rollback.xlsx")
+    duplicate_source_row = replace(preview.rows[1], row_number=preview.rows[0].row_number)
+    invalid_preview = replace(
+        preview,
+        checksum="f" * 64,
+        rows=(preview.rows[0], duplicate_source_row),
+    )
+
+    async with session_factory() as session:
+        with pytest.raises(IntegrityError):
+            await ImportService(session).commit(invalid_preview)
+        await session.rollback()
+
+    async with session_factory() as session:
+        for model in (ImportBatchModel, BondInstrumentModel, BondLotModel):
+            count = await session.scalar(select(func.count()).select_from(model))
+            assert count == 0
