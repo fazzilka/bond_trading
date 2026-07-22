@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Портфель · Bond Trading{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div><p class="eyebrow">Доходный счёт</p><h1>Портфель облигаций</h1></div>
+  <a class="button" href="/import">Импортировать XLSX</a>
+</section>
+<section class="legend card">
+  <span class="source manual">Ручной ввод</span>
+  <span class="source external">MOEX / база</span>
+  <span class="source calculated">Расчёт приложения</span>
+</section>
+<form class="filters card" method="get">
+  <input name="search" value="{{ filters.get('search', '') }}" placeholder="ISIN или название">
+  <select name="event_type"><option value="">Все события</option><option value="maturity">Погашение</option><option value="offer">Оферта</option></select>
+  <select name="comparison"><option value="">Любая доходность</option><option value="above">Текущая выше плана</option><option value="below">Текущая ниже плана</option></select>
+  <select name="data_status"><option value="">Все данные</option><option value="stale">Устаревшие</option><option value="no_bid">Нет bid</option></select>
+  <select name="sort"><option value="delta">Сортировка: delta</option><option value="current_yield">Текущая доходность</option><option value="purchase_date">Дата покупки</option><option value="target_date">Дата события</option><option value="updated_at">Обновление</option></select>
+  <button>Применить</button>
+</form>
+<section class="table-wrap card">
+  <table>
+    <thead><tr><th>ISIN / выпуск</th><th>Покупка</th><th>Кол-во</th><th>Стоимость</th><th>Цель</th><th>План после налога (оценка)</th><th>Bid / НКД</th><th>Полученные купоны</th><th>Текущая после налога (оценка)</th><th>Δ, п.п.</th><th>Ликвидность</th><th>Данные</th></tr></thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td><a href="/portfolio/{{ row.lot.id }}"><strong>{{ row.lot.instrument.isin }}</strong><br><small>{{ row.lot.instrument.short_name }}</small></a></td>
+        <td class="manual">{{ row.lot.purchase_date }}<br>{{ "%.2f"|format(row.lot.purchase_clean_price_rub_per_bond) }} ₽</td>
+        <td class="manual">{{ row.lot.quantity }}</td>
+        <td class="calculated">{{ "%.2f"|format(row.purchase_total) }} ₽</td>
+        <td>{{ "Погашение" if row.lot.target_event_type == "maturity" else "Оферта" }}<br><small>{{ row.lot.target_event_date }}</small></td>
+        <td class="calculated">{% if row.planned_yield is not none %}{{ "%.2f"|format(row.planned_yield) }}%{% else %}—{% endif %}</td>
+        <td class="external" title="Источник: MOEX ISS; поля marketdata.BID и securities.ACCRUEDINT">{% if row.market %}{{ "%.2f"|format(row.market.bid_rub_per_bond) if row.market.bid_rub_per_bond is not none else "нет bid" }}<br><small>НКД {{ row.market.accrued_interest_rub_per_bond if row.market.accrued_interest_rub_per_bond is not none else "—" }}</small>{% else %}—{% endif %}</td>
+        <td class="calculated">{% if row.received_coupons is not none %}{{ "%.2f"|format(row.received_coupons) }} ₽{% else %}—{% endif %}</td>
+        <td class="calculated">{% if row.current_yield is not none %}{{ "%.2f"|format(row.current_yield) }}%{% else %}—{% endif %}</td>
+        <td class="delta {{ 'positive' if row.delta and row.delta > 0 else 'negative' if row.delta and row.delta < 0 else '' }}">{{ "%+.2f"|format(row.delta) if row.delta is not none else "—" }}</td>
+        <td title="{% if row.liquidity.status.value == 'partial' %}Доходность теоретическая: лучший bid покрывает только часть позиции.{% endif %}"><span class="status liquidity-{{ row.liquidity.status.value }}">{{ row.liquidity.status.value }}</span><br><small>{% if row.liquidity.available_bonds_at_best_bid is not none %}{{ row.liquidity.available_bonds_at_best_bid }} шт. по лучшему bid{% else %}объём неизвестен{% endif %}</small></td>
+        <td><span class="status {{ row.freshness }}">{{ row.freshness }}</span><br><small>{{ row.market.received_at if row.market else "не обновлялись" }}{% if row.market %}<br>delayed: {{ row.market.delayed_status }}{% endif %}</small></td>
+      </tr>
+    {% else %}<tr><td colspan="12" class="empty">Лотов пока нет.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

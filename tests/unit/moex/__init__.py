@@ -1,0 +1,1 @@
+"""MOEX adapter unit tests."""

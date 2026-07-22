@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Bond Trading{% endblock %}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@2.0.8" integrity="sha384-2kIcAizYXhIn8TzUvqzEDZNuDZ+aW7WrMDw+u7MWKqIVkF6h/PFxt9HpIhSnQp6B" crossorigin="anonymous"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/portfolio">Bond Trading</a>
+    <nav>
+      <a href="/portfolio">Портфель</a>
+      <a href="/import">Импорт</a>
+      <a href="/data-status">Данные MOEX</a>
+      <a href="/settings">Настройки</a>
+      <a href="/docs">API</a>
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer>Однопользовательский локальный MVP. Не является инвестиционной или налоговой рекомендацией.</footer>
+</body>
+</html>

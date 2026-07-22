@@ -1,0 +1,68 @@
+name: bond-trading
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bond_trading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bond_trading_local}
+      POSTGRES_DB: ${POSTGRES_DB:-bond_trading}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build: .
+    image: bond-trading-backend:local
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BOND_TRADING__DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-bond_trading}:${POSTGRES_PASSWORD:-bond_trading_local}@postgres:5432/${POSTGRES_DB:-bond_trading}
+
+  backend:
+    build: .
+    image: bond-trading-backend:local
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      BOND_TRADING__DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-bond_trading}:${POSTGRES_PASSWORD:-bond_trading_local}@postgres:5432/${POSTGRES_DB:-bond_trading}
+      BOND_TRADING__ENVIRONMENT: development
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v3.8.1
+    profiles: ["monitoring"]
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  prometheus_data:

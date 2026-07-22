@@ -1,0 +1,6 @@
+{% if error %}<div class="card error">{{ error }}</div>{% elif preview %}
+<section class="card"><h2>Предпросмотр: {{ preview.file_name }}</h2><p>Лист: {{ preview.sheet_name }} · прочитано строк: {{ preview.rows_read }} · валидно: {{ preview.rows|length }} · ошибок: {{ preview.errors|length }}</p>
+<table><thead><tr><th>Строка</th><th>Исходный ISIN</th><th>Нормализованный</th><th>Дата</th><th>Количество</th><th>Цена</th></tr></thead><tbody>{% for row in preview.rows %}<tr><td>{{ row.row_number }}</td><td>{{ row.source_isin }}</td><td>{{ row.normalized_isin }}</td><td>{{ row.purchase_date }}</td><td>{{ row.quantity }}</td><td>{{ row.purchase_clean_price_rub_per_bond }}</td></tr>{% endfor %}</tbody></table>
+{% if preview.errors %}<h3>Ошибки строк</h3><ul class="errors">{% for item in preview.errors %}<li>Строка {{ item.row_number }}, {{ item.field }}: {{ item.message }}</li>{% endfor %}</ul>{% endif %}
+<form method="post" action="/import/commit"><input type="hidden" name="preview_id" value="{{ preview_id }}"><button {% if not preview.rows %}disabled{% endif %}>Подтвердить импорт</button></form></section>
+{% endif %}
