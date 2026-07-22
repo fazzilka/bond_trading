@@ -39,8 +39,13 @@ class InstrumentService:
     async def refresh(
         self, isin: str, client: MoexIssClient
     ) -> tuple[BondInstrumentModel, MarketSnapshotModel]:
-        result = await client.refresh(isin)
-        instrument = await self.get_by_isin(result.instrument.isin)
+        normalized_isin = normalize_isin(isin)
+        instrument = await self.get_by_isin(normalized_isin)
+        try:
+            result = await client.refresh(normalized_isin)
+        except Exception as exc:
+            await self._record_refresh_error(instrument, exc)
+            raise
         if instrument is None:
             instrument = BondInstrumentModel(
                 isin=result.instrument.isin,
@@ -113,3 +118,20 @@ class InstrumentService:
         await self._session.refresh(instrument)
         await self._session.refresh(snapshot)
         return instrument, snapshot
+
+    async def _record_refresh_error(
+        self, instrument: BondInstrumentModel | None, error: Exception
+    ) -> None:
+        if instrument is None:
+            return
+        latest = await self._session.scalar(
+            select(MarketSnapshotModel)
+            .where(MarketSnapshotModel.instrument_id == instrument.id)
+            .order_by(MarketSnapshotModel.received_at.desc())
+            .limit(1)
+        )
+        if latest is None:
+            return
+        latest.status = "refresh_error"
+        latest.error_message = str(error)[:2000]
+        await self._session.commit()

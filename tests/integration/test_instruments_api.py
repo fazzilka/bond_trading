@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bond_trading.domain.calculations import ActionType
+from bond_trading.infrastructure.moex.errors import MoexTemporaryError
 from bond_trading.infrastructure.moex.schemas import (
     MoexCorporateActionData,
     MoexInstrumentData,
@@ -64,6 +65,11 @@ class FakeMoexClient:
         )
 
 
+class FailingMoexClient:
+    async def refresh(self, isin: str, *, force: bool = True) -> MoexRefreshResult:
+        raise MoexTemporaryError("MOEX is temporarily unavailable")
+
+
 async def test_refresh_and_read_instrument(
     app_client: tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession], FastAPI],
 ) -> None:
@@ -80,3 +86,13 @@ async def test_refresh_and_read_instrument(
     instrument = await client.get("/api/v1/instruments/RU000A107SX3")
     assert instrument.status_code == 200
     assert instrument.json()["short_name"] == "ЭконЛиз1Р7"
+
+    app.state.moex_client = FailingMoexClient()
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as error_client:
+        failed = await error_client.post("/api/v1/instruments/RU000A107SX3/refresh")
+        assert failed.status_code == 500
+
+        status_page = await error_client.get("/data-status")
+        assert "MOEX is temporarily unavailable" in status_page.text
+        assert "refresh_error" in status_page.text
