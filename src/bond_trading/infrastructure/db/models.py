@@ -87,6 +87,10 @@ class BondLotModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     target_event_type: Mapped[str] = mapped_column(String(16))
     target_event_date: Mapped[date] = mapped_column(Date)
     target_redemption_price_rub_per_bond: Mapped[Decimal | None] = mapped_column(MONEY)
+    target_redemption_override_reason: Mapped[str | None] = mapped_column(Text)
+    target_redemption_override_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     sale_commission_rub_per_bond: Mapped[Decimal] = mapped_column(MONEY, default=Decimal(0))
     planned_yield_manual_reference: Mapped[Decimal | None] = mapped_column(PERCENT)
     source_row_number: Mapped[int | None] = mapped_column(Integer)

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -85,7 +86,9 @@ def create_app() -> FastAPI:
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         return JSONResponse(
             status_code=422,
-            content=error_payload("validation_error", "Request validation failed", exc.errors()),
+            content=jsonable_encoder(
+                error_payload("validation_error", "Request validation failed", exc.errors())
+            ),
         )
 
     @app.exception_handler(DomainError)

@@ -76,6 +76,8 @@ async def test_preview_commit_and_idempotency(
 
     lots = await client.get("/api/v1/lots")
     assert len(lots.json()) == 2
+    assert lots.json()[0]["target_redemption_override_reason"] == "Imported from source column N"
+    assert lots.json()[0]["target_redemption_override_updated_at"] is not None
 
 
 async def test_preview_rejects_wrong_extension_and_mime_type(

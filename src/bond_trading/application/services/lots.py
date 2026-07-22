@@ -64,6 +64,8 @@ class LotService:
     async def create(self, values: dict[str, Any]) -> BondLotModel:
         isin = normalize_isin(str(values.pop("isin")))
         source_name = values.pop("source_name", None)
+        if values.get("target_redemption_price_rub_per_bond") is not None:
+            values["target_redemption_override_updated_at"] = datetime.now(UTC)
         instrument = await self._session.scalar(
             select(BondInstrumentModel).where(BondInstrumentModel.isin == isin)
         )
@@ -83,6 +85,14 @@ class LotService:
 
     async def update(self, lot_id: UUID, values: dict[str, Any]) -> BondLotModel:
         lot = await self._required(lot_id)
+        if "target_redemption_price_rub_per_bond" in values:
+            if values["target_redemption_price_rub_per_bond"] is None:
+                values["target_redemption_override_reason"] = None
+                values["target_redemption_override_updated_at"] = None
+            else:
+                values["target_redemption_override_updated_at"] = datetime.now(UTC)
+        elif "target_redemption_override_reason" in values:
+            values["target_redemption_override_updated_at"] = datetime.now(UTC)
         for field, value in values.items():
             setattr(lot, field, value)
         await self._session.commit()

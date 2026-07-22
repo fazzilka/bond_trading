@@ -1,5 +1,6 @@
 import time
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -107,6 +108,16 @@ class ImportService:
                     target_event_type=row.target_event_type,
                     target_event_date=row.target_event_date,
                     target_redemption_price_rub_per_bond=(row.target_redemption_price_rub_per_bond),
+                    target_redemption_override_reason=(
+                        "Imported from source column N"
+                        if row.target_redemption_price_rub_per_bond is not None
+                        else None
+                    ),
+                    target_redemption_override_updated_at=(
+                        datetime.now(UTC)
+                        if row.target_redemption_price_rub_per_bond is not None
+                        else None
+                    ),
                     sale_commission_rub_per_bond=row.sale_commission_rub_per_bond,
                     planned_yield_manual_reference=(row.planned_yield_manual_reference),
                     source_row_number=row.row_number,

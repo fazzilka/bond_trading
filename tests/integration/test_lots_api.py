@@ -22,6 +22,7 @@ def lot_payload(quantity: str = "40") -> dict[str, object]:
         "target_event_type": "maturity",
         "target_event_date": "2027-02-15",
         "target_redemption_price_rub_per_bond": "1000",
+        "target_redemption_override_reason": "Control scenario redemption value",
     }
 
 
@@ -32,6 +33,8 @@ async def test_lot_crud_and_calculation(
     created = await client.post("/api/v1/lots", json=lot_payload())
     assert created.status_code == 201, created.text
     lot = created.json()
+    assert lot["target_redemption_override_reason"] == "Control scenario redemption value"
+    assert lot["target_redemption_override_updated_at"] is not None
 
     duplicate = await client.post("/api/v1/lots", json=lot_payload("2"))
     assert duplicate.status_code == 201
@@ -92,3 +95,15 @@ async def test_lot_crud_and_calculation(
 
     deleted = await client.delete(f"/api/v1/lots/{lot['id']}")
     assert deleted.status_code == 204
+
+
+async def test_manual_override_requires_reason(
+    app_client: tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession], object],
+) -> None:
+    client, _, _ = app_client
+    payload = lot_payload()
+    payload.pop("target_redemption_override_reason")
+
+    rejected = await client.post("/api/v1/lots", json=payload)
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "validation_error"

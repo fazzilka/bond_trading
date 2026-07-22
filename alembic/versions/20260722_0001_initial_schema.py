@@ -77,6 +77,8 @@ def upgrade() -> None:
         sa.Column("target_event_type", sa.String(16), nullable=False),
         sa.Column("target_event_date", sa.Date(), nullable=False),
         sa.Column("target_redemption_price_rub_per_bond", MONEY),
+        sa.Column("target_redemption_override_reason", sa.Text()),
+        sa.Column("target_redemption_override_updated_at", sa.DateTime(timezone=True)),
         sa.Column("sale_commission_rub_per_bond", MONEY, nullable=False),
         sa.Column("planned_yield_manual_reference", PERCENT),
         sa.Column("source_row_number", sa.Integer()),

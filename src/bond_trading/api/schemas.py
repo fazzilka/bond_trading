@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bond_trading.domain.calculations.models import TaxMode
 from bond_trading.infrastructure.db.models import BondLotModel
@@ -65,11 +65,21 @@ class LotCreate(BaseModel):
     target_event_type: Literal["maturity", "offer"]
     target_event_date: date
     target_redemption_price_rub_per_bond: Decimal | None = Field(default=None, ge=0)
+    target_redemption_override_reason: str | None = Field(default=None, max_length=1000)
     sale_commission_rub_per_bond: Decimal = Field(default=Decimal(0), ge=0)
     planned_yield_manual_reference: Decimal | None = None
     source_row_number: int | None = None
     source_sheet_name: str = "manual"
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def require_override_reason(self) -> Self:
+        if (
+            self.target_redemption_price_rub_per_bond is not None
+            and not (self.target_redemption_override_reason or "").strip()
+        ):
+            raise ValueError("A reason is required for a manual target redemption override")
+        return self
 
 
 class LotPatch(BaseModel):
@@ -81,9 +91,21 @@ class LotPatch(BaseModel):
     target_event_type: Literal["maturity", "offer"] | None = None
     target_event_date: date | None = None
     target_redemption_price_rub_per_bond: Decimal | None = Field(default=None, ge=0)
+    target_redemption_override_reason: str | None = Field(default=None, max_length=1000)
     sale_commission_rub_per_bond: Decimal | None = Field(default=None, ge=0)
     planned_yield_manual_reference: Decimal | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def require_override_reason(self) -> Self:
+        override_is_set = "target_redemption_price_rub_per_bond" in self.model_fields_set
+        if (
+            override_is_set
+            and self.target_redemption_price_rub_per_bond is not None
+            and not (self.target_redemption_override_reason or "").strip()
+        ):
+            raise ValueError("A reason is required for a manual target redemption override")
+        return self
 
 
 class LotOut(BaseModel):
@@ -99,6 +121,8 @@ class LotOut(BaseModel):
     target_event_type: str
     target_event_date: date
     target_redemption_price_rub_per_bond: Decimal | None
+    target_redemption_override_reason: str | None
+    target_redemption_override_updated_at: datetime | None
     sale_commission_rub_per_bond: Decimal
     planned_yield_manual_reference: Decimal | None
     source_row_number: int | None
@@ -122,6 +146,8 @@ class LotOut(BaseModel):
             target_event_type=lot.target_event_type,
             target_event_date=lot.target_event_date,
             target_redemption_price_rub_per_bond=(lot.target_redemption_price_rub_per_bond),
+            target_redemption_override_reason=lot.target_redemption_override_reason,
+            target_redemption_override_updated_at=(lot.target_redemption_override_updated_at),
             sale_commission_rub_per_bond=lot.sale_commission_rub_per_bond,
             planned_yield_manual_reference=lot.planned_yield_manual_reference,
             source_row_number=lot.source_row_number,
