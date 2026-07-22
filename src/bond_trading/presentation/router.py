@@ -14,7 +14,7 @@ from bond_trading.api.dependencies import get_import_cache
 from bond_trading.application.services import LotService, SettingsService
 from bond_trading.application.services.imports import ImportPreviewCache, ImportService
 from bond_trading.core.config import get_settings
-from bond_trading.domain.calculations import calculate_purchase
+from bond_trading.domain.calculations import calculate_purchase, evaluate_liquidity
 from bond_trading.domain.calculations.models import PurchaseInput, TaxMode
 from bond_trading.infrastructure.db.models import (
     BondInstrumentModel,
@@ -218,6 +218,12 @@ async def _portfolio_rows(session: AsyncSession) -> list[dict[str, Any]]:
                 commission_rub_per_bond=lot.purchase_commission_rub_per_bond,
             )
         )
+        liquidity = evaluate_liquidity(
+            quantity=lot.quantity,
+            bid_present=market is not None and market.bid_rub_per_bond is not None,
+            bid_depth_lots=market.bid_depth_lots if market else None,
+            lot_size=market.lot_size if market else Decimal(1),
+        )
         rows.append(
             {
                 "lot": lot,
@@ -231,6 +237,10 @@ async def _portfolio_rows(session: AsyncSession) -> list[dict[str, Any]]:
                     latest_yield.current_annual_yield_after_tax if latest_yield else None
                 ),
                 "delta": latest_yield.yield_delta_pp if latest_yield else None,
+                "received_coupons": _calculation_detail_decimal(
+                    latest_yield, "current", "coupons_total"
+                ),
+                "liquidity": liquidity,
                 "freshness": _freshness(market, settings.market_data_ttl_seconds),
             }
         )
@@ -256,3 +266,15 @@ def _freshness(market: MarketSnapshotModel | None, ttl_seconds: int) -> str:
     if received_at.tzinfo is None:
         received_at = received_at.replace(tzinfo=UTC)
     return "fresh" if received_at >= datetime.now(UTC) - timedelta(seconds=ttl_seconds) else "stale"
+
+
+def _calculation_detail_decimal(
+    snapshot: YieldSnapshotModel | None, section: str, field: str
+) -> Decimal | None:
+    if snapshot is None:
+        return None
+    section_data = snapshot.calculation_details.get(section)
+    if not isinstance(section_data, dict):
+        return None
+    value = section_data.get(field)
+    return Decimal(str(value)) if value is not None else None

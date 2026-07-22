@@ -20,7 +20,7 @@
 </form>
 <section class="table-wrap card">
   <table>
-    <thead><tr><th>ISIN / выпуск</th><th>Покупка</th><th>Кол-во</th><th>Стоимость</th><th>Цель</th><th>План</th><th>Bid / НКД</th><th>Текущая</th><th>Δ, п.п.</th><th>Данные</th></tr></thead>
+    <thead><tr><th>ISIN / выпуск</th><th>Покупка</th><th>Кол-во</th><th>Стоимость</th><th>Цель</th><th>План после налога (оценка)</th><th>Bid / НКД</th><th>Полученные купоны</th><th>Текущая после налога (оценка)</th><th>Δ, п.п.</th><th>Ликвидность</th><th>Данные</th></tr></thead>
     <tbody>
     {% for row in rows %}
       <tr>
@@ -29,13 +29,15 @@
         <td class="manual">{{ row.lot.quantity }}</td>
         <td class="calculated">{{ "%.2f"|format(row.purchase_total) }} ₽</td>
         <td>{{ "Погашение" if row.lot.target_event_type == "maturity" else "Оферта" }}<br><small>{{ row.lot.target_event_date }}</small></td>
-        <td class="calculated">{{ "%.2f"|format(row.planned_yield) if row.planned_yield is not none else "—" }}%</td>
-        <td class="external">{% if row.market %}{{ "%.2f"|format(row.market.bid_rub_per_bond) if row.market.bid_rub_per_bond is not none else "нет bid" }}<br><small>НКД {{ row.market.accrued_interest_rub_per_bond if row.market.accrued_interest_rub_per_bond is not none else "—" }}</small>{% else %}—{% endif %}</td>
-        <td class="calculated">{{ "%.2f"|format(row.current_yield) if row.current_yield is not none else "—" }}%</td>
+        <td class="calculated">{% if row.planned_yield is not none %}{{ "%.2f"|format(row.planned_yield) }}%{% else %}—{% endif %}</td>
+        <td class="external" title="Источник: MOEX ISS; поля marketdata.BID и securities.ACCRUEDINT">{% if row.market %}{{ "%.2f"|format(row.market.bid_rub_per_bond) if row.market.bid_rub_per_bond is not none else "нет bid" }}<br><small>НКД {{ row.market.accrued_interest_rub_per_bond if row.market.accrued_interest_rub_per_bond is not none else "—" }}</small>{% else %}—{% endif %}</td>
+        <td class="calculated">{% if row.received_coupons is not none %}{{ "%.2f"|format(row.received_coupons) }} ₽{% else %}—{% endif %}</td>
+        <td class="calculated">{% if row.current_yield is not none %}{{ "%.2f"|format(row.current_yield) }}%{% else %}—{% endif %}</td>
         <td class="delta {{ 'positive' if row.delta and row.delta > 0 else 'negative' if row.delta and row.delta < 0 else '' }}">{{ "%+.2f"|format(row.delta) if row.delta is not none else "—" }}</td>
-        <td><span class="status {{ row.freshness }}">{{ row.freshness }}</span><br><small>{{ row.market.received_at if row.market else "не обновлялись" }}</small></td>
+        <td title="{% if row.liquidity.status.value == 'partial' %}Доходность теоретическая: лучший bid покрывает только часть позиции.{% endif %}"><span class="status liquidity-{{ row.liquidity.status.value }}">{{ row.liquidity.status.value }}</span><br><small>{% if row.liquidity.available_bonds_at_best_bid is not none %}{{ row.liquidity.available_bonds_at_best_bid }} шт. по лучшему bid{% else %}объём неизвестен{% endif %}</small></td>
+        <td><span class="status {{ row.freshness }}">{{ row.freshness }}</span><br><small>{{ row.market.received_at if row.market else "не обновлялись" }}{% if row.market %}<br>delayed: {{ row.market.delayed_status }}{% endif %}</small></td>
       </tr>
-    {% else %}<tr><td colspan="10" class="empty">Лотов пока нет.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="12" class="empty">Лотов пока нет.</td></tr>{% endfor %}
     </tbody>
   </table>
 </section>
