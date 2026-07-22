@@ -199,6 +199,10 @@ class ImportRowOut(BaseModel):
     purchase_clean_price_rub_per_bond: Decimal
     purchase_accrued_interest_rub_per_bond: Decimal
     purchase_commission_rub_per_bond: Decimal
+    target_redemption_price_rub_per_bond: Decimal | None
+    sale_commission_rub_per_bond: Decimal
+    planned_yield_manual_reference: Decimal | None
+    offer_submission_period: str | None
 
 
 class ImportErrorOut(BaseModel):

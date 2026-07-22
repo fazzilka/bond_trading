@@ -17,7 +17,11 @@ from bond_trading.application.services.imports import ImportPreviewCache, Import
 from bond_trading.core.config import get_settings
 from bond_trading.infrastructure.db.models import ImportBatchModel
 from bond_trading.infrastructure.db.session import get_session
-from bond_trading.infrastructure.imports import XlsxImportError, XlsxPortfolioReader
+from bond_trading.infrastructure.imports import (
+    XlsxImportError,
+    XlsxPortfolioReader,
+    validate_xlsx_upload,
+)
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 Session = Annotated[AsyncSession, Depends(get_session)]
@@ -29,6 +33,10 @@ async def preview_import(
     cache: Cache,
     file: Annotated[UploadFile, File()],
 ) -> ImportPreviewOut:
+    try:
+        validate_xlsx_upload(file.filename or "", file.content_type)
+    except XlsxImportError as exc:
+        raise HTTPException(422, str(exc)) from exc
     content = await file.read(get_settings().imports.max_upload_bytes + 1)
     if len(content) > get_settings().imports.max_upload_bytes:
         raise HTTPException(413, "Uploaded XLSX file is too large")

@@ -76,3 +76,41 @@ async def test_preview_commit_and_idempotency(
 
     lots = await client.get("/api/v1/lots")
     assert len(lots.json()) == 2
+
+
+async def test_preview_rejects_wrong_extension_and_mime_type(
+    app_client: tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession], object],
+) -> None:
+    client, _, _ = app_client
+
+    wrong_extension = await client.post(
+        "/api/v1/imports/preview",
+        files={"file": ("portfolio.xls", xlsx_bytes(), "application/octet-stream")},
+    )
+    assert wrong_extension.status_code == 422
+    assert wrong_extension.json()["code"] == "http_error"
+
+    wrong_mime = await client.post(
+        "/api/v1/imports/preview",
+        files={"file": ("portfolio.xlsx", xlsx_bytes(), "text/plain")},
+    )
+    assert wrong_mime.status_code == 422
+    assert "MIME" in wrong_mime.json()["message"]
+
+
+async def test_preview_does_not_trust_valid_upload_metadata(
+    app_client: tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession], object],
+) -> None:
+    client, _, _ = app_client
+    response = await client.post(
+        "/api/v1/imports/preview",
+        files={
+            "file": (
+                "portfolio.xlsx",
+                b"not a workbook",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert response.status_code == 422
+    assert "readable XLSX" in response.json()["message"]

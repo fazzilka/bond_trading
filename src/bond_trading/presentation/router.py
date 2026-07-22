@@ -22,7 +22,11 @@ from bond_trading.infrastructure.db.models import (
     YieldSnapshotModel,
 )
 from bond_trading.infrastructure.db.session import get_session
-from bond_trading.infrastructure.imports import XlsxImportError, XlsxPortfolioReader
+from bond_trading.infrastructure.imports import (
+    XlsxImportError,
+    XlsxPortfolioReader,
+    validate_xlsx_upload,
+)
 
 PRESENTATION_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=PRESENTATION_DIR / "templates")
@@ -111,18 +115,19 @@ async def import_preview(
     cache: Cache,
     file: Annotated[UploadFile, File()],
 ) -> HTMLResponse:
-    content = await file.read(get_settings().imports.max_upload_bytes + 1)
     error: str | None = None
     preview = None
     preview_id = None
-    if len(content) > get_settings().imports.max_upload_bytes:
-        error = "Файл превышает допустимый размер."
-    else:
-        try:
+    try:
+        validate_xlsx_upload(file.filename or "", file.content_type)
+        content = await file.read(get_settings().imports.max_upload_bytes + 1)
+        if len(content) > get_settings().imports.max_upload_bytes:
+            error = "Файл превышает допустимый размер."
+        else:
             preview = XlsxPortfolioReader().preview(content, file.filename or "upload.xlsx")
             preview_id = cache.put(preview)
-        except XlsxImportError as exc:
-            error = str(exc)
+    except XlsxImportError as exc:
+        error = str(exc)
     return templates.TemplateResponse(
         request=request,
         name="import_preview.html",

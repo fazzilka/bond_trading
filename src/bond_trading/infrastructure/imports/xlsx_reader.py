@@ -15,10 +15,26 @@ from bond_trading.domain.errors import InvalidIsinError
 from bond_trading.domain.value_objects import normalize_isin
 
 DEFAULT_SHEET_NAME = "Доход счёт 2026"
+ALLOWED_XLSX_MEDIA_TYPES = frozenset(
+    {
+        "application/octet-stream",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/x-zip-compressed",
+        "application/zip",
+    }
+)
 
 
 class XlsxImportError(ValueError):
     pass
+
+
+def validate_xlsx_upload(file_name: str, content_type: str | None) -> None:
+    if Path(file_name).suffix.lower() != ".xlsx":
+        raise XlsxImportError("Only .xlsx files are supported")
+    normalized_content_type = (content_type or "").partition(";")[0].strip().lower()
+    if normalized_content_type and normalized_content_type not in ALLOWED_XLSX_MEDIA_TYPES:
+        raise XlsxImportError("The upload MIME type is not valid for an XLSX workbook")
 
 
 @dataclass(frozen=True, slots=True)
