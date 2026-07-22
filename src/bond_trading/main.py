@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -20,6 +21,8 @@ from bond_trading.core.middleware import RequestContextMiddleware
 from bond_trading.domain.errors import DomainError
 from bond_trading.infrastructure.db.session import Database
 from bond_trading.infrastructure.moex import MoexIssClient
+from bond_trading.presentation.router import PRESENTATION_DIR
+from bond_trading.presentation.router import router as presentation_router
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,8 @@ def create_app() -> FastAPI:
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(RequestContextMiddleware)
     app.include_router(router)
+    app.include_router(presentation_router)
+    app.mount("/static", StaticFiles(directory=PRESENTATION_DIR / "static"), name="static")
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
