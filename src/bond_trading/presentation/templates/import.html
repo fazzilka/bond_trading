@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Импорт · Bond Trading{% endblock %}
 {% block content %}
-<section class="page-head"><div><p class="eyebrow">XLSX</p><h1>Импорт портфеля</h1></div></section>
-<section class="card narrow"><p>Экспортируйте Numbers в XLSX. Будет прочитан блок листа «Доход счёт 2026» от строки после заголовка ISIN до первой пустой строки.</p><form hx-post="/import/preview" hx-target="#preview" hx-encoding="multipart/form-data" enctype="multipart/form-data"><label>Файл XLSX<input type="file" name="file" accept=".xlsx" required></label><button>Показать preview</button></form></section>
+<section class="page-head"><div><p class="eyebrow">MinIO + spreadsheets</p><h1>Импорт портфеля</h1></div></section>
+<section class="card narrow"><p>Оригинал сохраняется в MinIO, затем приложение читает лист «Доход счёт 2026» от строки после заголовка ISIN до первой пустой строки.</p><p class="muted">Поддерживаются Numbers и форматы Excel: XLSX, XLS, XLSM, XLSB, XLTX и XLTM.</p><form hx-post="/import/preview" hx-target="#preview" hx-encoding="multipart/form-data" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Табличный файл<input type="file" name="file" accept=".numbers,.xlsx,.xls,.xlsm,.xlsb,.xltx,.xltm" required></label><button>Сохранить и показать preview</button></form></section>
 <section id="preview"></section>
 {% endblock %}

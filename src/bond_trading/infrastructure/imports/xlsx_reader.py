@@ -1,40 +1,86 @@
 import hashlib
 import io
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
+from uuid import UUID
 
 import openpyxl
-from openpyxl.cell.cell import Cell
-from openpyxl.worksheet.worksheet import Worksheet
+from numbers_parser import Document
+from python_calamine import CalamineWorkbook
 
 from bond_trading.domain.errors import InvalidIsinError
 from bond_trading.domain.value_objects import normalize_isin
 
 DEFAULT_SHEET_NAME = "Доход счёт 2026"
-ALLOWED_XLSX_MEDIA_TYPES = frozenset(
+OOXML_EXTENSIONS = frozenset({".xlsx", ".xlsm", ".xltx", ".xltm"})
+CALAMINE_EXTENSIONS = frozenset({".xls", ".xlsb"})
+NUMBERS_EXTENSIONS = frozenset({".numbers"})
+SUPPORTED_EXTENSIONS = OOXML_EXTENSIONS | CALAMINE_EXTENSIONS | NUMBERS_EXTENSIONS
+ALLOWED_MEDIA_TYPES = frozenset(
     {
         "application/octet-stream",
+        "application/vnd.apple.numbers",
+        "application/vnd.ms-excel",
+        "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+        "application/vnd.ms-excel.sheet.macroenabled.12",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/x-iwork-numbers-sffnumbers",
+        "application/x-ole-storage",
         "application/x-zip-compressed",
         "application/zip",
     }
 )
 
 
-class XlsxImportError(ValueError):
+class SpreadsheetImportError(ValueError):
     pass
 
 
-def validate_xlsx_upload(file_name: str, content_type: str | None) -> None:
-    if Path(file_name).suffix.lower() != ".xlsx":
-        raise XlsxImportError("Only .xlsx files are supported")
+XlsxImportError = SpreadsheetImportError
+
+
+def validate_spreadsheet_upload(file_name: str, content_type: str | None) -> None:
+    suffix = Path(file_name).suffix.lower()
+    if suffix not in SUPPORTED_EXTENSIONS:
+        extensions = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+        raise SpreadsheetImportError(f"Supported spreadsheet extensions: {extensions}")
     normalized_content_type = (content_type or "").partition(";")[0].strip().lower()
-    if normalized_content_type and normalized_content_type not in ALLOWED_XLSX_MEDIA_TYPES:
-        raise XlsxImportError("The upload MIME type is not valid for an XLSX workbook")
+    if normalized_content_type and normalized_content_type not in ALLOWED_MEDIA_TYPES:
+        raise SpreadsheetImportError(
+            f"The upload MIME type {normalized_content_type!r} is not valid for {suffix}"
+        )
+
+
+validate_xlsx_upload = validate_spreadsheet_upload
+
+
+@dataclass(frozen=True, slots=True)
+class SpreadsheetCell:
+    value: Any
+    is_formula: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SpreadsheetSheet:
+    title: str
+    rows: tuple[tuple[SpreadsheetCell, ...], ...]
+
+    @property
+    def max_row(self) -> int:
+        return len(self.rows)
+
+    def cell(self, row: int, column: int) -> SpreadsheetCell:
+        if row <= 0 or column <= 0 or row > len(self.rows):
+            return SpreadsheetCell(None)
+        values = self.rows[row - 1]
+        if column > len(values):
+            return SpreadsheetCell(None)
+        return values[column - 1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,9 +119,10 @@ class ImportPreview:
     rows_read: int
     rows: tuple[ImportRow, ...]
     errors: tuple[ImportRowError, ...]
+    upload_id: UUID | None = None
 
 
-class XlsxPortfolioReader:
+class SpreadsheetPortfolioReader:
     def preview(
         self,
         content: bytes,
@@ -83,19 +130,15 @@ class XlsxPortfolioReader:
         *,
         sheet_name: str = DEFAULT_SHEET_NAME,
     ) -> ImportPreview:
-        if Path(file_name).suffix.lower() != ".xlsx":
-            raise XlsxImportError("Only .xlsx files are supported")
-        try:
-            workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=False, read_only=False)
-        except Exception as exc:
-            raise XlsxImportError("The uploaded file is not a readable XLSX workbook") from exc
-        worksheet = self._select_sheet(workbook.worksheets, sheet_name)
+        validate_spreadsheet_upload(file_name, None)
+        sheets = self._load_sheets(content, file_name)
+        worksheet = self._select_sheet(sheets, sheet_name)
         header_row, isin_column = self._find_header(worksheet)
         rows: list[ImportRow] = []
         errors: list[ImportRowError] = []
         rows_read = 0
         for row_number in range(header_row + 1, worksheet.max_row + 1):
-            cells = list(worksheet[row_number])
+            cells = worksheet.rows[row_number - 1]
             if self._is_empty_row(cells):
                 break
             rows_read += 1
@@ -120,30 +163,119 @@ class XlsxPortfolioReader:
             errors=tuple(errors),
         )
 
-    def _select_sheet(self, worksheets: Sequence[Any], requested: str) -> Worksheet:
-        by_name = {sheet.title.strip(): sheet for sheet in worksheets}
-        if requested in by_name:
-            return cast(Worksheet, by_name[requested])
-        for worksheet in worksheets:
+    def _load_sheets(self, content: bytes, file_name: str) -> tuple[SpreadsheetSheet, ...]:
+        suffix = Path(file_name).suffix.lower()
+        try:
+            if suffix in OOXML_EXTENSIONS:
+                return self._load_ooxml(content, suffix)
+            if suffix in CALAMINE_EXTENSIONS:
+                return self._load_calamine(content)
+            if suffix in NUMBERS_EXTENSIONS:
+                return self._load_numbers(content)
+        except SpreadsheetImportError:
+            raise
+        except Exception as exc:
+            raise SpreadsheetImportError(
+                f"The uploaded {suffix} file is not a readable spreadsheet"
+            ) from exc
+        raise SpreadsheetImportError(f"Unsupported spreadsheet extension: {suffix}")
+
+    @staticmethod
+    def _load_ooxml(content: bytes, suffix: str) -> tuple[SpreadsheetSheet, ...]:
+        workbook = openpyxl.load_workbook(
+            io.BytesIO(content),
+            data_only=False,
+            read_only=False,
+            keep_vba=suffix in {".xlsm", ".xltm"},
+        )
+        return tuple(
+            SpreadsheetSheet(
+                title=worksheet.title,
+                rows=tuple(
+                    tuple(
+                        SpreadsheetCell(
+                            value=cell.value,
+                            is_formula=cell.data_type == "f"
+                            or (isinstance(cell.value, str) and cell.value.startswith("=")),
+                        )
+                        for cell in row
+                    )
+                    for row in worksheet.iter_rows()
+                ),
+            )
+            for worksheet in workbook.worksheets
+        )
+
+    @staticmethod
+    def _load_calamine(content: bytes) -> tuple[SpreadsheetSheet, ...]:
+        workbook = CalamineWorkbook.from_filelike(io.BytesIO(content))
+        return tuple(
+            SpreadsheetSheet(
+                title=name,
+                rows=tuple(
+                    tuple(SpreadsheetCell(value=value) for value in row)
+                    for row in workbook.get_sheet_by_name(name).to_python(skip_empty_area=False)
+                ),
+            )
+            for name in workbook.sheet_names
+        )
+
+    @staticmethod
+    def _load_numbers(content: bytes) -> tuple[SpreadsheetSheet, ...]:
+        with tempfile.NamedTemporaryFile(suffix=".numbers") as source:
+            source.write(content)
+            source.flush()
+            document = Document(source.name)
+            sheets: list[SpreadsheetSheet] = []
+            for sheet in document.sheets:
+                for table_index, table in enumerate(sheet.tables):
+                    title = sheet.name if table_index == 0 else f"{sheet.name} — {table.name}"
+                    sheets.append(
+                        SpreadsheetSheet(
+                            title=title,
+                            rows=tuple(
+                                tuple(
+                                    SpreadsheetCell(
+                                        value=cell.value,
+                                        is_formula=bool(getattr(cell, "is_formula", False)),
+                                    )
+                                    for cell in row
+                                )
+                                for row in table.rows()
+                            ),
+                        )
+                    )
+            return tuple(sheets)
+
+    def _select_sheet(
+        self, worksheets: Sequence[SpreadsheetSheet], requested: str
+    ) -> SpreadsheetSheet:
+        requested_sheets = [
+            sheet
+            for sheet in worksheets
+            if sheet.title.strip() == requested or sheet.title.strip().startswith(f"{requested} — ")
+        ]
+        for worksheet in (*requested_sheets, *worksheets):
             try:
                 self._find_header(worksheet)
-            except XlsxImportError:
+            except SpreadsheetImportError:
                 continue
-            return cast(Worksheet, worksheet)
-        raise XlsxImportError(
+            return worksheet
+        raise SpreadsheetImportError(
             f"Sheet {requested!r} or another sheet with an ISIN header was not found"
         )
 
-    def _find_header(self, worksheet: Worksheet) -> tuple[int, int]:
-        for row in worksheet.iter_rows():
-            for cell in row:
+    @staticmethod
+    def _find_header(worksheet: SpreadsheetSheet) -> tuple[int, int]:
+        for row_index, row in enumerate(worksheet.rows, start=1):
+            for column_index, cell in enumerate(row, start=1):
                 if str(cell.value or "").strip().upper() == "ISIN":
-                    return cast(int, cell.row), cast(int, cell.column)
-        raise XlsxImportError(f"ISIN header was not found on sheet {worksheet.title!r}")
+                    return row_index, column_index
+        raise SpreadsheetImportError(f"ISIN header was not found on sheet {worksheet.title!r}")
 
-    def _parse_row(self, worksheet: Worksheet, row: int, isin_column: int) -> ImportRow:
-        def cell(column: int) -> Cell:
-            return cast(Cell, worksheet.cell(row=row, column=column))
+    def _parse_row(self, worksheet: SpreadsheetSheet, row: int, isin_column: int) -> ImportRow:
+        def cell(column: int) -> SpreadsheetCell:
+            return worksheet.cell(row, column)
 
         source_isin = _manual_text(cell(isin_column), "isin", required=True)
         assert source_isin is not None
@@ -177,8 +309,12 @@ class XlsxPortfolioReader:
         )
 
     @staticmethod
-    def _is_empty_row(cells: Sequence[Any]) -> bool:
+    def _is_empty_row(cells: Sequence[SpreadsheetCell]) -> bool:
         return all(cell.value is None or str(cell.value).strip() == "" for cell in cells)
+
+
+class XlsxPortfolioReader(SpreadsheetPortfolioReader):
+    """Backward-compatible name for the multi-format spreadsheet reader."""
 
 
 class _RowValidationError(ValueError):
@@ -189,14 +325,14 @@ class _RowValidationError(ValueError):
         self.source_value = source_value
 
 
-def _reject_formula(cell: Cell, field: str) -> None:
-    if cell.data_type == "f" or (isinstance(cell.value, str) and cell.value.startswith("=")):
+def _reject_formula(cell: SpreadsheetCell, field: str) -> None:
+    if cell.is_formula or (isinstance(cell.value, str) and cell.value.startswith("=")):
         raise _RowValidationError(
             field, "A manual source field cannot contain a formula", str(cell.value)
         )
 
 
-def _manual_text(cell: Cell, field: str, *, required: bool) -> str | None:
+def _manual_text(cell: SpreadsheetCell, field: str, *, required: bool) -> str | None:
     _reject_formula(cell, field)
     value = _text(cell.value)
     if required and value is None:
@@ -204,7 +340,7 @@ def _manual_text(cell: Cell, field: str, *, required: bool) -> str | None:
     return value
 
 
-def _manual_date(cell: Cell, field: str) -> date:
+def _manual_date(cell: SpreadsheetCell, field: str) -> date:
     _reject_formula(cell, field)
     value = cell.value
     if isinstance(value, datetime):
@@ -220,7 +356,7 @@ def _manual_date(cell: Cell, field: str) -> date:
 
 
 def _manual_decimal(
-    cell: Cell,
+    cell: SpreadsheetCell,
     field: str,
     *,
     positive: bool = False,
@@ -235,10 +371,8 @@ def _manual_decimal(
     return value
 
 
-def _optional_decimal(cell: Cell) -> Decimal | None:
-    if cell.value in (None, ""):
-        return None
-    if cell.data_type == "f":
+def _optional_decimal(cell: SpreadsheetCell) -> Decimal | None:
+    if cell.value in (None, "") or cell.is_formula:
         return None
     return _decimal(cell.value, "optional_decimal")
 

@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -34,6 +34,31 @@ class ImportSettings(BaseModel):
     preview_ttl_seconds: int = Field(default=1800, ge=60)
 
 
+class StorageSettings(BaseModel):
+    endpoint: str = "127.0.0.1:9000"
+    access_key: str = "bond-trading"
+    secret_key: str = "change-me-minio"
+    bucket: str = "bond-trading-uploads"
+    secure: bool = False
+    region: str = "us-east-1"
+
+
+class AuthSettings(BaseModel):
+    session_ttl_seconds: int = Field(default=7 * 24 * 60 * 60, ge=300)
+    session_cookie_name: str = "bond_trading_session"
+    csrf_cookie_name: str = "bond_trading_csrf"
+    secure_cookies: bool = False
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_email: str = "admin@bond-trading.local"
+    bootstrap_admin_password: str = "change-me-admin-2026"
+    bootstrap_user1_username: str = "user1"
+    bootstrap_user1_email: str = "user1@bond-trading.local"
+    bootstrap_user1_password: str = "change-me-user1-2026"
+    bootstrap_user2_username: str = "user2"
+    bootstrap_user2_email: str = "user2@bond-trading.local"
+    bootstrap_user2_password: str = "change-me-user2-2026"
+
+
 class LoggingSettings(BaseModel):
     level: str = "INFO"
 
@@ -52,7 +77,25 @@ class AppSettings(BaseSettings):
     database: DatabaseSettings = DatabaseSettings()
     moex: MoexSettings = MoexSettings()
     imports: ImportSettings = ImportSettings()
+    storage: StorageSettings = StorageSettings()
+    auth: AuthSettings = AuthSettings()
     logging: LoggingSettings = LoggingSettings()
+
+    @model_validator(mode="after")
+    def require_production_secrets(self) -> "AppSettings":
+        if self.environment.lower() != "production":
+            return self
+        if not self.auth.secure_cookies:
+            raise ValueError("auth.secure_cookies must be enabled in production")
+        secrets = (
+            self.storage.secret_key,
+            self.auth.bootstrap_admin_password,
+            self.auth.bootstrap_user1_password,
+            self.auth.bootstrap_user2_password,
+        )
+        if any(secret.startswith("change-me-") for secret in secrets):
+            raise ValueError("default storage or bootstrap passwords are forbidden in production")
+        return self
 
     @property
     def business_timezone(self) -> ZoneInfo:

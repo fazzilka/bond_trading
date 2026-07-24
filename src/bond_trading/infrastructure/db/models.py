@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -33,6 +34,45 @@ MONEY = Numeric(24, 8)
 PERCENT = Numeric(24, 10)
 
 
+class UserRole(StrEnum):
+    USER = "user"
+    ADMIN = "admin"
+
+
+class UserModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "users"
+
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(512))
+    role: Mapped[UserRole] = mapped_column(
+        Enum(
+            UserRole,
+            native_enum=False,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        default=UserRole.USER,
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuthSessionModel(UuidPrimaryKeyMixin, Base):
+    __tablename__ = "auth_sessions"
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    csrf_token_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+
+    user: Mapped[UserModel] = relationship()
+
+
 class BondInstrumentModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "bond_instruments"
 
@@ -57,8 +97,12 @@ class BondInstrumentModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
 
 class ImportBatchModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "import_batches"
-    __table_args__ = (UniqueConstraint("checksum", "sheet_name"),)
+    __table_args__ = (UniqueConstraint("owner_id", "checksum", "sheet_name"),)
 
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    uploaded_file_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("uploaded_files.id", ondelete="SET NULL"), unique=True
+    )
     file_name: Mapped[str] = mapped_column(String(512))
     sheet_name: Mapped[str] = mapped_column(String(255))
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -69,6 +113,20 @@ class ImportBatchModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     checksum: Mapped[str] = mapped_column(String(64))
 
 
+class UploadedFileModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "uploaded_files"
+
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    original_file_name: Mapped[str] = mapped_column(String(512))
+    object_key: Mapped[str] = mapped_column(String(1024), unique=True)
+    content_type: Mapped[str] = mapped_column(String(255))
+    file_format: Mapped[str] = mapped_column(String(16))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    checksum: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="uploaded", index=True)
+    parse_error: Mapped[str | None] = mapped_column(Text)
+
+
 class BondLotModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "bond_lots"
     __table_args__ = (
@@ -76,6 +134,7 @@ class BondLotModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("import_batch_id", "source_row_number"),
     )
 
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     instrument_id: Mapped[UUID] = mapped_column(
         ForeignKey("bond_instruments.id", ondelete="RESTRICT"), index=True
     )
@@ -177,8 +236,10 @@ class YieldSnapshotModel(UuidPrimaryKeyMixin, Base):
 
 class AppSettingModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "app_settings"
+    __table_args__ = (UniqueConstraint("owner_id", "singleton_key"),)
 
-    singleton_key: Mapped[str] = mapped_column(String(32), unique=True, default="default")
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    singleton_key: Mapped[str] = mapped_column(String(32), default="default")
     market_data_ttl_seconds: Mapped[int] = mapped_column(Integer, default=900)
     tax_mode: Mapped[TaxMode] = mapped_column(
         Enum(

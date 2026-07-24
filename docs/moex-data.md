@@ -3,6 +3,25 @@
 Основной источник — публичный [MOEX ISS](https://iss.moex.com/iss/reference/).
 `MoexIssClient` изолирует application/domain от формата `columns` + `data`.
 
+## Нужен ли ключ MOEX
+
+Для используемых приложением публичных ISS-запросов отдельный API key не нужен.
+Приложение обращается к `https://iss.moex.com/iss` самостоятельно. Это не означает,
+что данные являются бесплатным realtime-потоком для любого способа распространения:
+режим, задержка и допустимое использование зависят от условий MOEX. Подписка и
+авторизованный режим нужны, когда требуется лицензированный realtime или иной
+коммерческий сценарий.
+
+Проверить поиск бумаги напрямую:
+
+```bash
+curl 'https://iss.moex.com/iss/securities.json?q=RU000A107SX3'
+```
+
+В обычной работе вручную разбирать ответ не требуется: вызов
+`POST /api/v1/instruments/RU000A107SX3/refresh` находит точный ISIN, определяет SECID
+и доску, затем сохраняет спецификацию, котировку и календарь выплат.
+
 ## Запросы одного refresh
 
 1. `/securities.json?q={isin}` — поиск точного ISIN и SECID.
@@ -70,4 +89,4 @@ market timestamp, received timestamp, freshness, delayed/unknown и послед
 
 Обычные unit и integration tests не обращаются к сети. Responses моделируются через
 respx/fixtures; отдельные live smoke tests запускаются только при установленной
-`BOND_TRADING_RUN_LIVE_TESTS=1`.
+`RUN_LIVE_MOEX=1`.

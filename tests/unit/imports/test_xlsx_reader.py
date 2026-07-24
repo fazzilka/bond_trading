@@ -1,9 +1,12 @@
 import io
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import openpyxl
 import pytest
+import xlwt
+from numbers_parser import Document
 
 from bond_trading.infrastructure.imports import XlsxImportError, XlsxPortfolioReader
 
@@ -118,8 +121,8 @@ def test_missing_header_and_wrong_extension() -> None:
     reader = XlsxPortfolioReader()
     with pytest.raises(XlsxImportError, match="ISIN"):
         reader.preview(workbook_bytes([], headers=False), "portfolio.xlsx")
-    with pytest.raises(XlsxImportError, match="xlsx"):
-        reader.preview(b"not a workbook", "portfolio.numbers")
+    with pytest.raises(XlsxImportError, match="extensions"):
+        reader.preview(b"not a workbook", "portfolio.csv")
 
 
 def test_iso_date_and_decimal_comma_are_supported() -> None:
@@ -128,3 +131,53 @@ def test_iso_date_and_decimal_comma_are_supported() -> None:
 
     assert preview.rows[0].purchase_date == date(2026, 5, 25)
     assert preview.rows[0].quantity == Decimal("40.5")
+
+
+def test_legacy_xls_is_supported() -> None:
+    workbook = xlwt.Workbook()
+    worksheet = workbook.add_sheet("Доход счёт 2026")
+    for column, value in enumerate(HEADERS):
+        if value is not None:
+            worksheet.write(1, column, value)
+    for column, value in enumerate(lot_row("RU000A107SX3")):
+        if value is not None:
+            if isinstance(value, datetime):
+                worksheet.write(
+                    2,
+                    column,
+                    value,
+                    xlwt.easyxf(num_format_str="YYYY-MM-DD"),
+                )
+            else:
+                worksheet.write(2, column, value)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    preview = XlsxPortfolioReader().preview(buffer.getvalue(), "portfolio.xls")
+
+    assert preview.sheet_name == "Доход счёт 2026"
+    assert len(preview.rows) == 1
+    assert preview.rows[0].normalized_isin == "RU000A107SX3"
+
+
+def test_apple_numbers_is_supported(tmp_path: Path) -> None:
+    path = tmp_path / "portfolio.numbers"
+    document = Document()
+    document.add_sheet("Доход счёт 2026", "Таблица 1")
+    table = document.sheets["Доход счёт 2026"].tables[0]
+    for column, value in enumerate(HEADERS):
+        if value is not None:
+            table.write(1, column, value)
+    for column, value in enumerate(lot_row("RU000A107SX3")):
+        if value is not None:
+            table.write(2, column, value)
+    for column, value in enumerate(lot_row("RU000A107SX3", quantity=999)):
+        if value is not None:
+            table.write(4, column, value)
+    document.save(path)
+
+    preview = XlsxPortfolioReader().preview(path.read_bytes(), path.name)
+
+    assert preview.sheet_name == "Доход счёт 2026"
+    assert len(preview.rows) == 1
+    assert preview.rows[0].quantity == Decimal("40")

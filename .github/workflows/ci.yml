@@ -23,4 +23,6 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run mypy src
       - run: uv run pytest
+      - run: docker compose config --quiet
       - run: docker build --tag bond-trading:test .
+      - run: docker build --tag bond-trading-minio:test --file deploy/minio/Dockerfile .

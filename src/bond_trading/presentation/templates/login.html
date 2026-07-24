@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Вход · Bond Trading{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <form class="card narrow form-stack" method="post" action="/login">
+    <p class="eyebrow">Защищённый доступ</p>
+    <h1>Вход в Bond Trading</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <input type="hidden" name="next_path" value="{{ next_path }}">
+    <label>Логин или email<input name="login" autocomplete="username" required autofocus></label>
+    <label>Пароль<input type="password" name="password" autocomplete="current-password" required></label>
+    <button>Войти</button>
+    <p class="muted">После первого входа смените стартовый пароль в разделе учётной записи.</p>
+  </form>
+</section>
+{% endblock %}

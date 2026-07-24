@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Файлы · Bond Trading{% endblock %}
+{% block content %}
+<section class="page-head"><div><p class="eyebrow">S3 / MinIO</p><h1>Загруженные файлы</h1></div><a class="button-link" href="/import">Новый импорт</a></section>
+<section class="card">
+  <table><thead><tr><th>Файл</th><th>Формат</th><th>Размер</th><th>Статус</th><th>Checksum</th><th>Дата</th><th></th></tr></thead>
+  <tbody>{% for upload in uploads %}<tr><td>{{ upload.original_file_name }}</td><td>{{ upload.file_format|upper }}</td><td>{{ upload.size_bytes }} B</td><td>{{ upload.status }}</td><td><code>{{ upload.checksum[:12] }}…</code></td><td>{{ upload.created_at }}</td><td><a href="/api/v1/uploads/{{ upload.id }}/download">Скачать</a></td></tr>{% else %}<tr><td colspan="7">Файлов пока нет.</td></tr>{% endfor %}</tbody></table>
+</section>
+{% endblock %}

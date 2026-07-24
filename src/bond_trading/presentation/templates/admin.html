@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Администрирование · Bond Trading{% endblock %}
+{% block content %}
+<section class="page-head"><div><p class="eyebrow">Admin</p><h1>Управление системой</h1></div></section>
+{% if error %}<div class="card error">{{ error }}</div>{% endif %}
+<section class="admin-grid">
+  <form class="card form-stack" method="post" action="/admin/users">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2>Добавить пользователя</h2>
+    <label>Логин<input name="username" required></label>
+    <label>Email<input type="email" name="email" required></label>
+    <label>Стартовый пароль<input type="password" name="password" minlength="12" required></label>
+    <label>Роль<select name="role"><option value="user">user</option><option value="admin">admin</option></select></label>
+    <button>Создать</button>
+  </form>
+  <section class="card">
+    <h2>Пользователи</h2>
+    <table><thead><tr><th>Логин</th><th>Роль</th><th>Статус</th><th>Последний вход</th><th></th></tr></thead><tbody>
+    {% for user in users %}<tr><td>{{ user.username }}<br><small>{{ user.email }}</small></td><td>{{ user.role.value }}</td><td>{{ "активен" if user.is_active else "отключён" }}</td><td>{{ user.last_login_at or "—" }}</td><td>{% if user.id != current_user.id and user.username != "legacy-owner" %}<form method="post" action="/admin/users/{{ user.id }}/toggle"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">{{ "Отключить" if user.is_active else "Включить" }}</button></form>{% endif %}</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+</section>
+<section class="card"><h2>Последние загрузки всех пользователей</h2><table><thead><tr><th>Owner ID</th><th>Файл</th><th>Формат</th><th>Размер</th><th>Статус</th><th>Дата</th></tr></thead><tbody>{% for upload in uploads %}<tr><td><code>{{ upload.owner_id }}</code></td><td>{{ upload.original_file_name }}</td><td>{{ upload.file_format }}</td><td>{{ upload.size_bytes }}</td><td>{{ upload.status }}</td><td>{{ upload.created_at }}</td></tr>{% else %}<tr><td colspan="6">Загрузок нет.</td></tr>{% endfor %}</tbody></table></section>
+{% endblock %}

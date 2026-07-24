@@ -16,6 +16,27 @@ services:
       timeout: 3s
       retries: 10
 
+  minio:
+    build:
+      context: .
+      dockerfile: deploy/minio/Dockerfile
+    image: bond-trading-minio:release-2025-10-15
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-bond-trading}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   migrate:
     build: .
     image: bond-trading-backend:local
@@ -34,9 +55,17 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      minio:
+        condition: service_healthy
     environment:
       BOND_TRADING__DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-bond_trading}:${POSTGRES_PASSWORD:-bond_trading_local}@postgres:5432/${POSTGRES_DB:-bond_trading}
       BOND_TRADING__ENVIRONMENT: development
+      BOND_TRADING__STORAGE__ENDPOINT: minio:9000
+      BOND_TRADING__STORAGE__ACCESS_KEY: ${MINIO_ROOT_USER:-bond-trading}
+      BOND_TRADING__STORAGE__SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-me-minio}
+      BOND_TRADING__AUTH__BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-change-me-admin-2026}
+      BOND_TRADING__AUTH__BOOTSTRAP_USER1_PASSWORD: ${BOOTSTRAP_USER1_PASSWORD:-change-me-user1-2026}
+      BOND_TRADING__AUTH__BOOTSTRAP_USER2_PASSWORD: ${BOOTSTRAP_USER2_PASSWORD:-change-me-user2-2026}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
@@ -65,4 +94,5 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:
   prometheus_data:

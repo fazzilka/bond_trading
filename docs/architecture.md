@@ -15,23 +15,25 @@ infrastructure adapters → application services
 ```
 
 `domain` ничего не знает о FastAPI, SQLAlchemy, файлах и HTTP. `application`
-координирует use cases и транзакции. `infrastructure` адаптирует PostgreSQL, MOEX ISS
-и XLSX. `api` и `presentation` являются двумя входами в одни сервисы.
+координирует use cases и транзакции. `infrastructure` адаптирует PostgreSQL, MOEX ISS,
+MinIO/S3 и форматы электронных таблиц. `api` и `presentation` являются двумя входами
+в одни сервисы.
 
 ## Ключевые каталоги
 
 ```text
 src/bond_trading/
   api/                    JSON API, schemas, dependencies
-  application/services/   import, instruments, lots, settings
+  application/services/   auth, uploads, import, instruments, lots, settings
   core/                   config, logs, metrics, request middleware
   domain/
     calculations/         чистые Decimal/date формулы
     value_objects/        нормализация и проверка ISIN
   infrastructure/
     db/                   async SQLAlchemy models/session
-    imports/              XLSX reader
+    imports/              Excel/Numbers readers
     moex/                 ISS client, mapper, DTO
+    storage/              MinIO/S3 adapter
   presentation/           Jinja2 templates, HTMX, CSS
   main.py                 composition root и lifespan
 alembic/                  миграции PostgreSQL
@@ -40,8 +42,9 @@ tests/                    unit, integration, opt-in live
 
 ## Runtime
 
-Composition root создаёт один `Database`, один переиспользуемый HTTPX `AsyncClient`,
-`MoexIssClient` и in-memory cache preview на lifespan FastAPI. Сессия SQLAlchemy
+Composition root создаёт один `Database`, переиспользуемый HTTPX `AsyncClient`,
+`MoexIssClient`, `MinioObjectStorage` и in-memory cache preview на lifespan FastAPI.
+При старте проверяется/создаётся bucket и bootstrap-пользователи. Сессия SQLAlchemy
 создаётся на запрос и откатывается при исключении. Простые FastAPI dependencies
 оставлены вместо отдельного DI-фреймворка: текущий граф зависимостей мал, а тестовые
 override остаются прозрачными.
@@ -60,7 +63,14 @@ latency для Prometheus.
   диагностический payload.
 - `YieldSnapshotModel` — неизменяемый результат конкретного расчёта и версия формулы.
 - `ImportBatchModel` — audit импорта по checksum и листу.
-- `AppSettingModel` — одна строка настроек расчёта.
+- `UploadedFileModel` — метаданные и object key оригинала в MinIO.
+- `UserModel` — пользователь и роль; пароль хранится только как Argon2 hash.
+- `AuthSessionModel` — hash непрозрачного session token, CSRF hash, expiry и отзыв.
+- `AppSettingModel` — одна строка настроек расчёта на пользователя.
+
+`BondLotModel`, `ImportBatchModel`, `UploadedFileModel` и `AppSettingModel` связаны с
+владельцем. Справочник инструментов и данные MOEX общие, потому что это внешние
+характеристики бумаги, а не пользовательские данные.
 
 Ручная цена целевого погашения хранится в лоте отдельно от `current_face_value` MOEX.
 Для неё обязательна причина и автоматически записывается время изменения. Обновление
@@ -88,8 +98,9 @@ override не уничтожает внешний номинал.
 
 ### Импорт
 
-Preview парсится без записи в БД и временно хранится в памяти. Commit повторно берёт
-тот же нормализованный preview, в одной транзакции создаёт batch, недостающие
+Оригинал сначала сохраняется в MinIO, а его метаданные — в PostgreSQL. Preview
+парсится без создания лотов и временно хранится в памяти с owner ID. Commit повторно
+берёт тот же нормализованный preview, в одной транзакции создаёт batch, недостающие
 инструменты и отдельный lot на каждую корректную строку. Ошибочные строки остаются в
 отчёте batch и не отменяют корректные.
 
@@ -102,10 +113,10 @@ Preview парсится без записи в БД и временно хра�
 ## Развёртывание
 
 Docker image — multi-stage, зависимости устанавливаются из `uv.lock`, runtime идёт от
-непривилегированного пользователя. Compose содержит `postgres`, одноразовый `migrate`
-и `backend`; Prometheus подключается только профилем `monitoring`. PostgreSQL не имеет
-опубликованного host-порта.
+непривилегированного пользователя. Compose содержит `postgres`, `minio`, одноразовый
+`migrate` и `backend`; Prometheus подключается только профилем `monitoring`.
+PostgreSQL не имеет опубликованного host-порта.
 
-Это локальный single-user runtime. Авторизация, TLS termination, резервное копирование,
-rate limiting внешних клиентов и multi-instance preview storage остаются задачами
-production-развёртывания.
+Авторизация и разделение владельцев реализованы. TLS termination, резервное
+копирование, rate limiting внешних клиентов и multi-instance preview cache остаются
+задачами production-развёртывания.
