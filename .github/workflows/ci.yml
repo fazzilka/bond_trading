@@ -10,6 +10,10 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      BOND_TRADING__AUTH__BOOTSTRAP_ADMIN_PASSWORD: ci-only-admin-password-2026
+      BOND_TRADING__AUTH__BOOTSTRAP_USER1_PASSWORD: ci-only-user1-password-2026
+      BOND_TRADING__AUTH__BOOTSTRAP_USER2_PASSWORD: ci-only-user2-password-2026
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7

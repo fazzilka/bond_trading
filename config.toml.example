@@ -8,6 +8,8 @@ echo = false
 
 [moex]
 base_url = "https://iss.moex.com/iss"
+passport_auth_url = "https://passport.moex.com/authenticate"
+require_auth = false
 timeout_seconds = 10.0
 retries = 3
 concurrency = 5
@@ -34,13 +36,10 @@ csrf_cookie_name = "bond_trading_csrf"
 secure_cookies = false
 bootstrap_admin_username = "admin"
 bootstrap_admin_email = "admin@bond-trading.local"
-bootstrap_admin_password = "change-me-admin-2026"
 bootstrap_user1_username = "user1"
 bootstrap_user1_email = "user1@bond-trading.local"
-bootstrap_user1_password = "change-me-user1-2026"
 bootstrap_user2_username = "user2"
 bootstrap_user2_email = "user2@bond-trading.local"
-bootstrap_user2_password = "change-me-user2-2026"
 
 [logging]
 level = "INFO"

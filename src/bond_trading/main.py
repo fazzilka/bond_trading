@@ -53,11 +53,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     object_storage = MinioObjectStorage(settings.storage)
     await object_storage.ensure_bucket()
     app.state.object_storage = object_storage
-    app.state.moex_client = MoexIssClient(
+    moex_client = MoexIssClient(
         http_client,
         settings.moex,
         settings.business_timezone,
     )
+    await moex_client.authenticate()
+    app.state.moex_client = moex_client
     app.state.import_cache = ImportPreviewCache(settings.imports.preview_ttl_seconds)
     async with database.session_factory() as session:
         await AuthService(session, settings.auth).ensure_bootstrap_users()

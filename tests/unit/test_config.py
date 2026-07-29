@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from bond_trading.core.config import AppSettings, AuthSettings, StorageSettings
+from bond_trading.core.config import (
+    AppSettings,
+    AuthSettings,
+    MoexSettings,
+    StorageSettings,
+)
 
 
 def test_production_rejects_development_security_defaults() -> None:
@@ -22,3 +27,13 @@ def test_production_accepts_explicit_security_settings() -> None:
     )
 
     assert settings.auth.secure_cookies is True
+
+
+def test_moex_passport_credentials_must_be_configured_together() -> None:
+    with pytest.raises(ValidationError, match="configured together"):
+        MoexSettings(passport_login="investor@example.com")
+
+
+def test_moex_auth_can_be_required_explicitly() -> None:
+    with pytest.raises(ValidationError, match="credentials are required"):
+        MoexSettings(require_auth=True)

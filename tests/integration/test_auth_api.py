@@ -1,11 +1,12 @@
 from typing import Any
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bond_trading.api.auth_dependencies import get_authenticated_session
-from bond_trading.application.services.auth import AuthService
+from bond_trading.application.services.auth import AuthenticationError, AuthService
 from bond_trading.core.config import AuthSettings
 from bond_trading.infrastructure.db.models import UserRole
 
@@ -113,3 +114,37 @@ async def test_login_csrf_roles_and_portfolio_isolation(
         headers={"Authorization": f"Bearer {alice['access_token']}"},
     )
     assert expired.status_code == 401
+
+
+async def test_bootstrap_admin_password_is_synchronized_from_settings(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    initial_settings = AuthSettings(
+        bootstrap_admin_password="initial-admin-password-2026",
+        bootstrap_user1_password="initial-user1-password-2026",
+        bootstrap_user2_password="initial-user2-password-2026",
+    )
+    async with session_factory() as session:
+        initial_service = AuthService(session, initial_settings)
+        await initial_service.ensure_bootstrap_users()
+        credentials = await initial_service.authenticate(
+            "admin", "initial-admin-password-2026", "pytest"
+        )
+
+    rotated_settings = AuthSettings(
+        bootstrap_admin_password="rotated-admin-password-2026",
+        bootstrap_user1_password="initial-user1-password-2026",
+        bootstrap_user2_password="initial-user2-password-2026",
+    )
+    async with session_factory() as session:
+        rotated_service = AuthService(session, rotated_settings)
+        await rotated_service.ensure_bootstrap_users()
+        with pytest.raises(AuthenticationError):
+            await rotated_service.resolve(credentials.token, via_bearer=True)
+        with pytest.raises(AuthenticationError):
+            await rotated_service.authenticate("admin", "initial-admin-password-2026", "pytest")
+        new_credentials = await rotated_service.authenticate(
+            "admin", "rotated-admin-password-2026", "pytest"
+        )
+
+    assert new_credentials.user.must_change_password is False

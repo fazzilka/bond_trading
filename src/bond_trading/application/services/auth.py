@@ -53,30 +53,38 @@ class AuthService:
             (
                 self._settings.bootstrap_admin_username,
                 self._settings.bootstrap_admin_email,
-                self._settings.bootstrap_admin_password,
+                self._settings.bootstrap_admin_password.get_secret_value(),
                 UserRole.ADMIN,
+                True,
             ),
             (
                 self._settings.bootstrap_user1_username,
                 self._settings.bootstrap_user1_email,
-                self._settings.bootstrap_user1_password,
+                self._settings.bootstrap_user1_password.get_secret_value(),
                 UserRole.USER,
+                False,
             ),
             (
                 self._settings.bootstrap_user2_username,
                 self._settings.bootstrap_user2_email,
-                self._settings.bootstrap_user2_password,
+                self._settings.bootstrap_user2_password.get_secret_value(),
                 UserRole.USER,
+                False,
             ),
         )
         changed = False
-        for username, email, password, role in users:
+        for username, email, password, role, sync_password in users:
+            self._validate_password(password)
             existing = await self._session.scalar(
                 select(UserModel).where(UserModel.username == self._normalize_username(username))
             )
             if existing is not None:
+                if sync_password and not self._password_matches(password, existing.password_hash):
+                    existing.password_hash = self._passwords.hash(password)
+                    existing.must_change_password = False
+                    await self._revoke_user_sessions(existing.id)
+                    changed = True
                 continue
-            self._validate_password(password)
             self._session.add(
                 UserModel(
                     username=self._normalize_username(username),
@@ -232,6 +240,22 @@ class AuthService:
                 .values(revoked_at=datetime.now(UTC))
             )
         await self._session.commit()
+
+    def _password_matches(self, password: str, password_hash: str) -> bool:
+        try:
+            return self._passwords.verify(password, password_hash)
+        except Exception:
+            return False
+
+    async def _revoke_user_sessions(self, user_id: UUID) -> None:
+        await self._session.execute(
+            update(AuthSessionModel)
+            .where(
+                AuthSessionModel.user_id == user_id,
+                AuthSessionModel.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC))
+        )
 
     @staticmethod
     def _normalize_username(username: str) -> str:

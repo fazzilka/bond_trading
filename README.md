@@ -32,7 +32,7 @@ MOEX. Временные метки хранятся в UTC, бизнес-дат
 
 ```bash
 cp .env.example .env
-# Обязательно замените стартовые пароли в .env.
+# Заполните все BOND_TRADING__AUTH__BOOTSTRAP_*_PASSWORD.
 docker compose up --build -d
 curl http://127.0.0.1:8000/health
 ```
@@ -93,14 +93,16 @@ export BOND_TRADING__LOGGING__LEVEL='DEBUG'
 При первом старте автоматически создаются три активных аккаунта: `admin`, `user1` и
 `user2`. Их пароли берутся из `.env`/environment:
 
-- `BOOTSTRAP_ADMIN_PASSWORD`;
-- `BOOTSTRAP_USER1_PASSWORD`;
-- `BOOTSTRAP_USER2_PASSWORD`.
+- `BOND_TRADING__AUTH__BOOTSTRAP_ADMIN_PASSWORD`;
+- `BOND_TRADING__AUTH__BOOTSTRAP_USER1_PASSWORD`;
+- `BOND_TRADING__AUTH__BOOTSTRAP_USER2_PASSWORD`.
 
-Значения из `.env.example` предназначены только для локального запуска. Все стартовые
-пользователи получают признак обязательной смены пароля. Сменить пароль можно на
-странице `/account`; после этого все сессии пользователя отзываются и нужно войти
-заново.
+`.env.example` не содержит паролей, только пустые поля-маски. Реальные значения
+должны находиться в локальном `.env`, который исключён из Git. При каждом старте
+пароль `admin` синхронизируется с
+`BOND_TRADING__AUTH__BOOTSTRAP_ADMIN_PASSWORD`: в PostgreSQL хранится
+только Argon2 hash, а старые admin-сессии при ротации отзываются. Пароли обычных
+bootstrap-пользователей используются только при их первом создании.
 
 Портфели, импорты, настройки и файлы разделены по владельцам. Обычный пользователь не
 видит данные другого пользователя. Администратор на `/admin` видит пользователей и

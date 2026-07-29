@@ -8,9 +8,34 @@
 Для используемых приложением публичных ISS-запросов отдельный API key не нужен.
 Приложение обращается к `https://iss.moex.com/iss` самостоятельно. Это не означает,
 что данные являются бесплатным realtime-потоком для любого способа распространения:
-режим, задержка и допустимое использование зависят от условий MOEX. Подписка и
-авторизованный режим нужны, когда требуется лицензированный realtime или иной
-коммерческий сценарий.
+режим, задержка и допустимое использование зависят от условий MOEX.
+
+Публичный delayed-режим в `.env`:
+
+```text
+BOND_TRADING__MOEX__PASSPORT_LOGIN=
+BOND_TRADING__MOEX__PASSPORT_PASSWORD=
+BOND_TRADING__MOEX__REQUIRE_AUTH=false
+```
+
+Для подписанного MOEX Passport доступа нужно зарегистрировать email в MOEX Passport,
+подключить у Биржи нужную информационную услугу и заполнить:
+
+```text
+BOND_TRADING__MOEX__PASSPORT_LOGIN=your-email@example.com
+BOND_TRADING__MOEX__PASSPORT_PASSWORD=your-private-password
+BOND_TRADING__MOEX__REQUIRE_AUTH=true
+```
+
+При startup backend выполняет Basic-auth запрос по HTTPS на
+`https://passport.moex.com/authenticate`, получает cookie `MicexPassportCert` и
+использует её для последующих ISS-запросов. Пароль не логируется и представлен в
+конфигурации как secret. Если `BOND_TRADING__MOEX__REQUIRE_AUTH=true`, отсутствие
+пары credentials или сертификата не даст backend запуститься.
+
+MOEX Passport не является торговым API: он открывает подписанные информационные
+разделы ISS. Для выставления заявок нужны брокерский/торговый интерфейс и отдельные
+договоры/идентификаторы MOEX.
 
 Проверить поиск бумаги напрямую:
 
