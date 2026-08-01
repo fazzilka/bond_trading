@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Учётная запись · Bond Trading{% endblock %}
+{% block content %}
+<section class="page-head"><div><p class="eyebrow">{{ current_user.role.value }}</p><h1>{{ current_user.username }}</h1><p>{{ current_user.email }}</p></div></section>
+<form class="card narrow form-stack" method="post" action="/account/password">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <h2>Смена пароля</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  {% if current_user.must_change_password %}<p class="warning">Используется стартовый пароль. Смените его перед постоянной работой.</p>{% endif %}
+  <label>Текущий пароль<input type="password" name="current_password" autocomplete="current-password" required></label>
+  <label>Новый пароль, минимум 12 символов<input type="password" name="new_password" minlength="12" autocomplete="new-password" required></label>
+  <button>Сменить пароль и завершить все сессии</button>
+</form>
+{% endblock %}

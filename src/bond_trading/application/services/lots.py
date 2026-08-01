@@ -39,26 +39,36 @@ class CalculationBundle:
 
 
 class LotService:
-    def __init__(self, session: AsyncSession, timezone: ZoneInfo) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        timezone: ZoneInfo,
+        owner_id: UUID,
+    ) -> None:
         self._session = session
         self._timezone = timezone
+        self._owner_id = owner_id
 
     async def list_all(self) -> list[BondLotModel]:
-        result = await self._session.scalars(
+        statement = (
             select(BondLotModel)
             .options(joinedload(BondLotModel.instrument))
             .order_by(BondLotModel.purchase_date, BondLotModel.created_at)
         )
+        statement = statement.where(BondLotModel.owner_id == self._owner_id)
+        result = await self._session.scalars(statement)
         return list(result.unique())
 
     async def get(self, lot_id: UUID) -> BondLotModel | None:
+        statement = (
+            select(BondLotModel)
+            .options(joinedload(BondLotModel.instrument))
+            .where(BondLotModel.id == lot_id)
+        )
+        statement = statement.where(BondLotModel.owner_id == self._owner_id)
         return cast(
             BondLotModel | None,
-            await self._session.scalar(
-                select(BondLotModel)
-                .options(joinedload(BondLotModel.instrument))
-                .where(BondLotModel.id == lot_id)
-            ),
+            await self._session.scalar(statement),
         )
 
     async def create(self, values: dict[str, Any]) -> BondLotModel:
@@ -78,7 +88,7 @@ class LotService:
             )
             self._session.add(instrument)
             await self._session.flush()
-        lot = BondLotModel(instrument_id=instrument.id, **values)
+        lot = BondLotModel(owner_id=self._owner_id, instrument_id=instrument.id, **values)
         self._session.add(lot)
         await self._session.commit()
         return await self._required(lot.id)
@@ -124,7 +134,7 @@ class LotService:
             for action in actions
             if action.amount_rub_per_bond is not None
         )
-        settings = await SettingsService(self._session).get()
+        settings = await SettingsService(self._session, self._owner_id).get()
         tax_policy = TaxPolicy(settings.tax_mode, settings.tax_rate)
         purchase = PurchaseInput(
             purchase_date=lot.purchase_date,

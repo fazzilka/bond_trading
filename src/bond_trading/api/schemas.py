@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bond_trading.domain.calculations.models import TaxMode
-from bond_trading.infrastructure.db.models import BondLotModel
+from bond_trading.infrastructure.db.models import BondLotModel, UserRole
 
 
 class InstrumentOut(BaseModel):
@@ -240,6 +240,7 @@ class ImportErrorOut(BaseModel):
 
 class ImportPreviewOut(BaseModel):
     preview_id: UUID
+    upload_id: UUID
     file_name: str
     sheet_name: str
     checksum: str
@@ -257,6 +258,8 @@ class ImportBatchOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    owner_id: UUID
+    uploaded_file_id: UUID | None
     file_name: str
     sheet_name: str
     imported_at: datetime
@@ -271,3 +274,60 @@ class ImportBatchOut(BaseModel):
 class RefreshAllOut(BaseModel):
     refreshed: list[str]
     errors: dict[str, str]
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    username: str
+    email: str
+    role: UserRole
+    is_active: bool
+    must_change_password: bool
+    last_login_at: datetime | None
+    created_at: datetime
+
+
+class LoginRequest(BaseModel):
+    login: str = Field(min_length=1, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class LoginOut(BaseModel):
+    user: UserOut
+    access_token: str
+    csrf_token: str
+    token_type: str = "bearer"
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)
+
+
+class AdminUserCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=12, max_length=1024)
+    role: UserRole = UserRole.USER
+
+
+class AdminUserPatch(BaseModel):
+    is_active: bool
+
+
+class UploadedFileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    owner_id: UUID
+    original_file_name: str
+    content_type: str
+    file_format: str
+    size_bytes: int
+    checksum: str
+    status: str
+    parse_error: str | None
+    created_at: datetime
+    updated_at: datetime

@@ -10,6 +10,7 @@ from bond_trading.infrastructure.db.models import (
     BondInstrumentModel,
     BondLotModel,
     ImportBatchModel,
+    UploadedFileModel,
 )
 from bond_trading.infrastructure.imports import ImportPreview
 
@@ -18,6 +19,7 @@ from bond_trading.infrastructure.imports import ImportPreview
 class CachedPreview:
     preview: ImportPreview
     expires_at: float
+    owner_id: UUID | None
 
 
 class ImportPreviewCache:
@@ -25,17 +27,20 @@ class ImportPreviewCache:
         self._ttl_seconds = ttl_seconds
         self._values: dict[UUID, CachedPreview] = {}
 
-    def put(self, preview: ImportPreview) -> UUID:
+    def put(self, preview: ImportPreview, owner_id: UUID | None = None) -> UUID:
         preview_id = uuid4()
         self._values[preview_id] = CachedPreview(
             preview=preview,
             expires_at=time.monotonic() + self._ttl_seconds,
+            owner_id=owner_id,
         )
         return preview_id
 
-    def get(self, preview_id: UUID) -> ImportPreview | None:
+    def get(self, preview_id: UUID, owner_id: UUID | None = None) -> ImportPreview | None:
         value = self._values.get(preview_id)
         if value is None:
+            return None
+        if owner_id is not None and value.owner_id != owner_id:
             return None
         if value.expires_at <= time.monotonic():
             self._values.pop(preview_id, None)
@@ -47,20 +52,30 @@ class ImportPreviewCache:
 
 
 class ImportService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, owner_id: UUID) -> None:
         self._session = session
+        self._owner_id = owner_id
 
     async def commit(self, preview: ImportPreview) -> tuple[ImportBatchModel, bool]:
         existing = await self._session.scalar(
             select(ImportBatchModel).where(
                 ImportBatchModel.checksum == preview.checksum,
                 ImportBatchModel.sheet_name == preview.sheet_name,
+                ImportBatchModel.owner_id == self._owner_id,
             )
         )
         if existing is not None:
+            if preview.upload_id is not None:
+                uploaded_file = await self._session.get(UploadedFileModel, preview.upload_id)
+                if uploaded_file is not None:
+                    uploaded_file.status = "duplicate"
+                    uploaded_file.parse_error = f"Content already imported in batch {existing.id}"
+                    await self._session.commit()
             return existing, True
 
         batch = ImportBatchModel(
+            owner_id=self._owner_id,
+            uploaded_file_id=preview.upload_id,
             file_name=preview.file_name,
             sheet_name=preview.sheet_name,
             rows_read=preview.rows_read,
@@ -97,6 +112,7 @@ class ImportService:
                 instruments_updated += 1
             self._session.add(
                 BondLotModel(
+                    owner_id=self._owner_id,
                     instrument_id=instrument.id,
                     purchase_date=row.purchase_date,
                     quantity=row.quantity,
@@ -132,6 +148,10 @@ class ImportService:
             )
         batch.lots_created = len(preview.rows)
         batch.instruments_updated = instruments_updated
+        if preview.upload_id is not None:
+            uploaded_file = await self._session.get(UploadedFileModel, preview.upload_id)
+            if uploaded_file is not None:
+                uploaded_file.status = "imported"
         await self._session.commit()
         await self._session.refresh(batch)
         return batch, False

@@ -13,6 +13,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from bond_trading.api.router import router
+from bond_trading.application.services.auth import AuthService
 from bond_trading.application.services.imports import ImportPreviewCache
 from bond_trading.core.config import get_settings
 from bond_trading.core.context import get_request_id
@@ -22,6 +23,7 @@ from bond_trading.core.middleware import RequestContextMiddleware
 from bond_trading.domain.errors import DomainError
 from bond_trading.infrastructure.db.session import Database
 from bond_trading.infrastructure.moex import MoexIssClient
+from bond_trading.infrastructure.storage import MinioObjectStorage
 from bond_trading.presentation.router import PRESENTATION_DIR
 from bond_trading.presentation.router import router as presentation_router
 
@@ -48,12 +50,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         headers={"User-Agent": settings.moex.user_agent},
     )
     app.state.database = database
-    app.state.moex_client = MoexIssClient(
+    object_storage = MinioObjectStorage(settings.storage)
+    await object_storage.ensure_bucket()
+    app.state.object_storage = object_storage
+    moex_client = MoexIssClient(
         http_client,
         settings.moex,
         settings.business_timezone,
     )
+    await moex_client.authenticate()
+    app.state.moex_client = moex_client
     app.state.import_cache = ImportPreviewCache(settings.imports.preview_ttl_seconds)
+    async with database.session_factory() as session:
+        await AuthService(session, settings.auth).ensure_bootstrap_users()
     try:
         yield
     finally:
@@ -80,6 +89,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content=error_payload("http_error", str(exc.detail)),
+            headers=exc.headers,
         )
 
     @app.exception_handler(RequestValidationError)

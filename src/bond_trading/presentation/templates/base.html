@@ -10,15 +10,26 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/portfolio">Bond Trading</a>
+    {% if current_user %}
     <nav>
       <a href="/portfolio">Портфель</a>
       <a href="/import">Импорт</a>
+      <a href="/uploads">Файлы</a>
       <a href="/data-status">Данные MOEX</a>
       <a href="/settings">Настройки</a>
+      {% if current_user.role.value == "admin" %}<a href="/admin">Админка</a>{% endif %}
       <a href="/docs">API</a>
     </nav>
+    <div class="account-menu">
+      <a href="/account">{{ current_user.username }}</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="link-button">Выйти</button>
+      </form>
+    </div>
+    {% endif %}
   </header>
   <main>{% block content %}{% endblock %}</main>
-  <footer>Однопользовательский локальный MVP. Не является инвестиционной или налоговой рекомендацией.</footer>
+  <footer>Данные каждого пользователя изолированы. Не является инвестиционной или налоговой рекомендацией.</footer>
 </body>
 </html>

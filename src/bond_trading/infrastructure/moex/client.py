@@ -31,6 +31,28 @@ class MoexIssClient:
         self._semaphore = asyncio.Semaphore(settings.concurrency)
         self._cache: dict[str, tuple[float, MoexRefreshResult]] = {}
 
+    async def authenticate(self) -> bool:
+        if not self._settings.has_passport_credentials:
+            return False
+        assert self._settings.passport_login is not None
+        assert self._settings.passport_password is not None
+        response = await self._http.get(
+            self._settings.passport_auth_url,
+            auth=httpx.BasicAuth(
+                self._settings.passport_login.strip(),
+                self._settings.passport_password.get_secret_value(),
+            ),
+        )
+        response.raise_for_status()
+        passport_cookie = response.cookies.get("MicexPassportCert")
+        if not passport_cookie:
+            raise MoexDataError("MOEX Passport authentication did not return MicexPassportCert")
+        logger.info(
+            "MOEX Passport session established",
+            extra={"event": "moex_authentication", "source": "MOEX ISS"},
+        )
+        return True
+
     async def refresh(self, isin: str, *, force: bool = True) -> MoexRefreshResult:
         normalized = normalize_isin(isin)
         cached = self._cache.get(normalized)

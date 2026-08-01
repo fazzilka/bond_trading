@@ -1,6 +1,7 @@
 import io
 from dataclasses import replace
 from datetime import datetime
+from uuid import UUID
 
 import httpx
 import openpyxl
@@ -14,8 +15,10 @@ from bond_trading.infrastructure.db.models import (
     BondInstrumentModel,
     BondLotModel,
     ImportBatchModel,
+    UploadedFileModel,
 )
 from bond_trading.infrastructure.imports import XlsxPortfolioReader
+from bond_trading.infrastructure.storage import MemoryObjectStorage
 
 
 def xlsx_bytes() -> bytes:
@@ -49,7 +52,7 @@ def xlsx_bytes() -> bytes:
 async def test_preview_commit_and_idempotency(
     app_client: tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession], object],
 ) -> None:
-    client, _, _ = app_client
+    client, session_factory, app = app_client
     content = xlsx_bytes()
     preview = await client.post(
         "/api/v1/imports/preview",
@@ -68,6 +71,12 @@ async def test_preview_commit_and_idempotency(
         "RU000A107SX3",
         "RU000A107SG8",
     ]
+    assert len(app.state.object_storage.objects) == 1
+    assert isinstance(app.state.object_storage, MemoryObjectStorage)
+    async with session_factory() as session:
+        uploaded = await session.get(UploadedFileModel, UUID(preview_data["upload_id"]))
+        assert uploaded is not None
+        assert uploaded.status == "parsed"
 
     committed = await client.post(
         "/api/v1/imports/commit", json={"preview_id": preview_data["preview_id"]}
@@ -75,6 +84,10 @@ async def test_preview_commit_and_idempotency(
     assert committed.status_code == 200, committed.text
     assert committed.json()["lots_created"] == 2
     assert committed.json()["idempotent_replay"] is False
+    async with session_factory() as session:
+        uploaded = await session.get(UploadedFileModel, UUID(preview_data["upload_id"]))
+        assert uploaded is not None
+        assert uploaded.status == "imported"
 
     second_preview = await client.post(
         "/api/v1/imports/preview",
@@ -85,6 +98,11 @@ async def test_preview_commit_and_idempotency(
     )
     assert replay.status_code == 200
     assert replay.json()["idempotent_replay"] is True
+    async with session_factory() as session:
+        duplicate = await session.get(UploadedFileModel, UUID(second_preview.json()["upload_id"]))
+        assert duplicate is not None
+        assert duplicate.status == "duplicate"
+        assert str(replay.json()["id"]) in (duplicate.parse_error or "")
 
     lots = await client.get("/api/v1/lots")
     assert len(lots.json()) == 2
@@ -99,7 +117,7 @@ async def test_preview_rejects_wrong_extension_and_mime_type(
 
     wrong_extension = await client.post(
         "/api/v1/imports/preview",
-        files={"file": ("portfolio.xls", xlsx_bytes(), "application/octet-stream")},
+        files={"file": ("portfolio.csv", xlsx_bytes(), "text/csv")},
     )
     assert wrong_extension.status_code == 422
     assert wrong_extension.json()["code"] == "http_error"
@@ -127,7 +145,7 @@ async def test_preview_does_not_trust_valid_upload_metadata(
         },
     )
     assert response.status_code == 422
-    assert "readable XLSX" in response.json()["message"]
+    assert "readable spreadsheet" in response.json()["message"]
 
 
 async def test_failed_commit_rolls_back_the_entire_import(
@@ -143,7 +161,9 @@ async def test_failed_commit_rolls_back_the_entire_import(
 
     async with session_factory() as session:
         with pytest.raises(IntegrityError):
-            await ImportService(session).commit(invalid_preview)
+            await ImportService(session, UUID("11111111-1111-1111-1111-111111111111")).commit(
+                invalid_preview
+            )
         await session.rollback()
 
     async with session_factory() as session:
