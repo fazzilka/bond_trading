@@ -72,6 +72,8 @@ curl 'https://iss.moex.com/iss/securities.json?q=RU000A107SX3'
 | непогашенный номинал | `securities.FACEVALUE` | fallback на description `FACEVALUE` |
 | валюта номинала | `FACEUNIT` | историческое `SUR` нормализуется в `RUB` |
 | НКД | `securities.ACCRUEDINT` | `null` остаётся `null`, не превращается в ноль |
+| Лучшее предложение | `marketdata.OFFER` | переводится из процентов от номинала в рубли |
+| Глубина предложения | `marketdata.OFFERDEPTH` | сохраняется отдельно от глубины BID |
 | последняя сделка | `marketdata.LAST` | сохраняется только для информации |
 | рыночное время | `marketdata.SYSTIME` | локальное московское время переводится в UTC |
 | delayed | нет надёжного публичного флага | сохраняется `unknown` |
