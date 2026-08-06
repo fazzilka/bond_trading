@@ -2,7 +2,8 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -14,6 +15,7 @@ from bond_trading.domain.value_objects import normalize_isin
 from bond_trading.infrastructure.moex.errors import MoexDataError, MoexTemporaryError
 from bond_trading.infrastructure.moex.mapper import find_exact_security, map_refresh_result
 from bond_trading.infrastructure.moex.schemas import MoexRefreshResult
+from bond_trading.infrastructure.moex.tables import table_rows
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,35 @@ class MoexIssClient:
             },
         )
         return result
+
+    async def accrued_interest_on(
+        self,
+        secid: str,
+        board_id: str | None,
+        value_date: date,
+    ) -> Decimal | None:
+        """Return the historical ACI for the exact trading date, without guessing."""
+        payload = await self._get(
+            "/history/engines/stock/markets/bonds/boards/"
+            f"{board_id or 'TQCB'}/securities/{secid}.json",
+            params={
+                "from": value_date.isoformat(),
+                "till": value_date.isoformat(),
+                "iss.meta": "off",
+                "history.columns": "TRADEDATE,ACCINT",
+            },
+        )
+        for row in table_rows(payload, "history"):
+            if str(row.get("TRADEDATE") or "") != value_date.isoformat():
+                continue
+            raw_value = row.get("ACCINT")
+            if raw_value in (None, ""):
+                return None
+            try:
+                return Decimal(str(raw_value))
+            except InvalidOperation as exc:
+                raise MoexDataError(f"MOEX returned invalid historical ACI: {raw_value!r}") from exc
+        return None
 
     async def _get(self, path: str, *, params: Mapping[str, str]) -> dict[str, Any]:
         retrying = AsyncRetrying(
