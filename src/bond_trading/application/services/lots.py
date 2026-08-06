@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from bond_trading.application.services.settings import SettingsService
+from bond_trading.application.services.sheets import enqueue_sheet_sync
 from bond_trading.domain.calculations import (
     CorporateCashFlow,
     CurrentYieldInput,
@@ -27,6 +28,7 @@ from bond_trading.infrastructure.db.models import (
     BondLotModel,
     CorporateActionModel,
     MarketSnapshotModel,
+    SheetSyncTrigger,
     YieldSnapshotModel,
 )
 
@@ -90,6 +92,7 @@ class LotService:
             await self._session.flush()
         lot = BondLotModel(owner_id=self._owner_id, instrument_id=instrument.id, **values)
         self._session.add(lot)
+        await enqueue_sheet_sync(self._session, self._owner_id, SheetSyncTrigger.LOT_CREATED)
         await self._session.commit()
         return await self._required(lot.id)
 
@@ -105,12 +108,14 @@ class LotService:
             values["target_redemption_override_updated_at"] = datetime.now(UTC)
         for field, value in values.items():
             setattr(lot, field, value)
+        await enqueue_sheet_sync(self._session, self._owner_id, SheetSyncTrigger.LOT_UPDATED)
         await self._session.commit()
         return await self._required(lot_id)
 
     async def delete(self, lot_id: UUID) -> bool:
         lot = await self._required(lot_id)
         await self._session.delete(lot)
+        await enqueue_sheet_sync(self._session, self._owner_id, SheetSyncTrigger.LOT_DELETED)
         await self._session.commit()
         return True
 
