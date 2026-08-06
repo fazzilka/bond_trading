@@ -56,8 +56,8 @@ def payloads() -> tuple[dict[str, object], ...]:
             ],
         ),
         "marketdata": block(
-            ["LAST", "BIDDEPTH", "SYSTIME", "BID", "BIDDEPTHT"],
-            [97.16, 12, "2026-07-22 15:39:25", 97.23, 248],
+            ["LAST", "BIDDEPTH", "SYSTIME", "BID", "OFFER", "OFFERDEPTH"],
+            [97.16, 12, "2026-07-22 15:39:25", 97.23, 97.43, 8],
         ),
     }
     bondization = {
@@ -92,6 +92,9 @@ def test_map_complete_response_with_changed_column_order() -> None:
     assert result.market.bid_percent == Decimal("97.23")
     assert result.market.bid_rub_per_bond == Decimal("972.30")
     assert result.market.bid_depth_lots == Decimal("12")
+    assert result.market.offer_percent == Decimal("97.43")
+    assert result.market.offer_rub_per_bond == Decimal("974.30")
+    assert result.market.offer_depth_lots == Decimal("8")
     assert result.market.accrued_interest_rub_per_bond == Decimal("0")
     assert result.market.market_timestamp == datetime(2026, 7, 22, 12, 39, 25, tzinfo=UTC)
     assert [action.action_type for action in result.actions] == [
@@ -116,6 +119,28 @@ def test_missing_bid_is_not_replaced_by_last() -> None:
     assert result.market.status == "no_bid"
     assert result.market.bid_percent is None
     assert result.market.bid_rub_per_bond is None
+    assert result.market.last_price_percent == Decimal("99.5")
+
+
+def test_missing_offer_is_not_replaced_by_last_or_bid() -> None:
+    search, specification, market, bondization = payloads()
+    market["marketdata"] = block(
+        ["LAST", "BID", "OFFER", "OFFERDEPTH"],
+        [99.5, 99.4, None, None],
+    )
+
+    result = map_refresh_result(
+        isin="RU000A107SX3",
+        search_payload=search,
+        specification_payload=specification,
+        market_payload=market,
+        bondization_payload=bondization,
+        timezone=ZoneInfo("Europe/Moscow"),
+    )
+
+    assert result.market.bid_rub_per_bond == Decimal("994.0")
+    assert result.market.offer_percent is None
+    assert result.market.offer_rub_per_bond is None
     assert result.market.last_price_percent == Decimal("99.5")
 
 

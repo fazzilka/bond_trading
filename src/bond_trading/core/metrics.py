@@ -18,6 +18,23 @@ HTTP_ACTIVE = Gauge(
     "Active HTTP requests",
     ("method",),
 )
+SHEET_SYNC_JOBS = Counter(
+    "bond_trading_sheet_sync_jobs_total",
+    "Задания синхронизации Google Таблиц",
+    ("status", "trigger"),
+)
+SHEET_SYNC_DURATION = Histogram(
+    "bond_trading_sheet_sync_duration_seconds",
+    "Длительность синхронизации Google Таблицы",
+)
+SHEET_SYNC_LAST_SUCCESS = Gauge(
+    "bond_trading_sheet_sync_last_success_timestamp",
+    "Unix-время последней успешной синхронизации Google Таблицы",
+)
+SHEET_SYNC_ROWS = Counter(
+    "bond_trading_sheet_sync_rows_total",
+    "Количество обновлённых строк Google Таблиц",
+)
 
 
 class MetricsMiddleware:

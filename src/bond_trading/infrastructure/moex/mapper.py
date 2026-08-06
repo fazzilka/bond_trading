@@ -99,6 +99,12 @@ def map_refresh_result(
         if bid_percent is not None and current_face is not None
         else None
     )
+    offer_percent = _decimal(market_row.get("OFFER"))
+    offer_rub = (
+        bid_to_rubles(offer_percent, current_face, QuoteBasis.PERCENT_OF_FACE)
+        if offer_percent is not None and current_face is not None
+        else None
+    )
     if "BIDDEPTH" not in market_row and market_row:
         logger.warning(
             "MOEX market data is missing optional field",
@@ -115,6 +121,9 @@ def map_refresh_result(
         bid_percent=bid_percent,
         bid_rub_per_bond=bid_rub,
         bid_depth_lots=_decimal(market_row.get("BIDDEPTH")),
+        offer_percent=offer_percent,
+        offer_rub_per_bond=offer_rub,
+        offer_depth_lots=_decimal(market_row.get("OFFERDEPTH")),
         lot_size=_decimal(security_row.get("LOTSIZE")) or Decimal(1),
         current_face_value=current_face,
         accrued_interest_rub_per_bond=_decimal(security_row.get("ACCRUEDINT")),

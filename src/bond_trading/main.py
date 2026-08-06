@@ -22,6 +22,10 @@ from bond_trading.core.metrics import MetricsMiddleware
 from bond_trading.core.middleware import RequestContextMiddleware
 from bond_trading.domain.errors import DomainError
 from bond_trading.infrastructure.db.session import Database
+from bond_trading.infrastructure.google_sheets import (
+    GoogleServiceAccountSheetsGateway,
+    UnavailableGoogleSheetsGateway,
+)
 from bond_trading.infrastructure.moex import MoexIssClient
 from bond_trading.infrastructure.storage import MinioObjectStorage
 from bond_trading.presentation.router import PRESENTATION_DIR
@@ -60,12 +64,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     await moex_client.authenticate()
     app.state.moex_client = moex_client
+    google_sheets_gateway: GoogleServiceAccountSheetsGateway | UnavailableGoogleSheetsGateway
+    if settings.google_sheets.enabled:
+        google_sheets_gateway = GoogleServiceAccountSheetsGateway(settings.google_sheets)
+    else:
+        google_sheets_gateway = UnavailableGoogleSheetsGateway(
+            "Интеграция Google Таблиц выключена в конфигурации сервера"
+        )
+    app.state.google_sheets_gateway = google_sheets_gateway
     app.state.import_cache = ImportPreviewCache(settings.imports.preview_ttl_seconds)
     async with database.session_factory() as session:
         await AuthService(session, settings.auth).ensure_bootstrap_users()
     try:
         yield
     finally:
+        if isinstance(google_sheets_gateway, GoogleServiceAccountSheetsGateway):
+            await google_sheets_gateway.close()
         await http_client.aclose()
         await database.close()
 

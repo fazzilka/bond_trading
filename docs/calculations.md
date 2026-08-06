@@ -120,6 +120,31 @@ bid_rub_per_bond = bid_percent × current_face_value / 100
 Функция также поддерживает уже рублёвую basis, но MOEX mapper использует
 `percent_of_face`.
 
+## Текущий расчёт Google Таблицы по OFFER
+
+По согласованному правилу Google Таблица использует не последнюю сделку и не BID, а
+лучшую цену предложения MOEX `marketdata.OFFER`:
+
+```text
+offer_rub_per_bond = offer_percent × current_face_value / 100
+
+purchase_total =
+    purchase_price_per_bond × quantity
+    + purchase_accrued_per_bond × quantity
+    + commission_from_column_L
+
+current_exit_total =
+    offer_rub_per_bond × quantity
+    + current_accrued_per_bond × quantity
+    + paid_coupons_total
+    + paid_amortizations_total
+```
+
+Колонка L содержит общую комиссию строки и поэтому прибавляется один раз. Если она
+пуста, синхронизация фиксирует `0.4`. Для совместимости с расчётом заказчика текущий
+положительный доход после налога делится на `1.13`; отрицательный результат не
+увеличивается. Биржевая цена в AA остаётся чистой ценой до налога и без НКД.
+
 ## Ликвидность
 
 ```text

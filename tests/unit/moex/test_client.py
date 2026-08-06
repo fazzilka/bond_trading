@@ -1,3 +1,5 @@
+from datetime import date
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -80,3 +82,29 @@ async def test_client_rejects_passport_response_without_certificate() -> None:
     async with httpx.AsyncClient(base_url=settings.base_url) as http_client:
         with pytest.raises(MoexDataError, match="MicexPassportCert"):
             await MoexIssClient(http_client, settings, ZoneInfo("Europe/Moscow")).authenticate()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_client_reads_historical_accrued_interest_for_exact_purchase_date() -> None:
+    settings = MoexSettings()
+    route = respx.get(
+        path=("/iss/history/engines/stock/markets/bonds/boards/TQCB/securities/RU000A107SX3.json")
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "history": {
+                    "columns": ["TRADEDATE", "ACCINT"],
+                    "data": [["2026-05-25", 3.07]],
+                }
+            },
+        )
+    )
+    async with httpx.AsyncClient(base_url=settings.base_url) as http_client:
+        value = await MoexIssClient(
+            http_client, settings, ZoneInfo("Europe/Moscow")
+        ).accrued_interest_on("RU000A107SX3", "TQCB", date(2026, 5, 25))
+
+    assert value == Decimal("3.07")
+    assert route.call_count == 1

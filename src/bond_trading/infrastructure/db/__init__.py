@@ -6,6 +6,8 @@ from bond_trading.infrastructure.db.models import (
     CorporateActionModel,
     ImportBatchModel,
     MarketSnapshotModel,
+    SheetConnectionModel,
+    SheetSyncJobModel,
     YieldSnapshotModel,
 )
 
@@ -17,5 +19,7 @@ __all__ = [
     "CorporateActionModel",
     "ImportBatchModel",
     "MarketSnapshotModel",
+    "SheetConnectionModel",
+    "SheetSyncJobModel",
     "YieldSnapshotModel",
 ]

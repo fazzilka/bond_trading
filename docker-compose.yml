@@ -69,6 +69,12 @@ services:
       BOND_TRADING__MOEX__PASSPORT_LOGIN: ${BOND_TRADING__MOEX__PASSPORT_LOGIN:-}
       BOND_TRADING__MOEX__PASSPORT_PASSWORD: ${BOND_TRADING__MOEX__PASSPORT_PASSWORD:-}
       BOND_TRADING__MOEX__REQUIRE_AUTH: ${BOND_TRADING__MOEX__REQUIRE_AUTH:-false}
+      BOND_TRADING__GOOGLE_SHEETS__ENABLED: ${BOND_TRADING__GOOGLE_SHEETS__ENABLED:-false}
+      BOND_TRADING__GOOGLE_SHEETS__CREDENTIALS_FILE: ${BOND_TRADING__GOOGLE_SHEETS__CREDENTIALS_FILE:-/run/secrets/google-service-account.json}
+      BOND_TRADING__GOOGLE_SHEETS__WORKER_POLL_SECONDS: ${BOND_TRADING__GOOGLE_SHEETS__WORKER_POLL_SECONDS:-5}
+      BOND_TRADING__GOOGLE_SHEETS__DEFAULT_SYNC_INTERVAL_SECONDS: ${BOND_TRADING__GOOGLE_SHEETS__DEFAULT_SYNC_INTERVAL_SECONDS:-300}
+    volumes:
+      - ./secrets:/run/secrets:ro
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
@@ -82,6 +88,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  sheet-sync-worker:
+    build: .
+    image: bond-trading-backend:local
+    restart: unless-stopped
+    command: ["python", "-m", "bond_trading.workers.sheet_sync"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      BOND_TRADING__DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-bond_trading}:${POSTGRES_PASSWORD:-bond_trading_local}@postgres:5432/${POSTGRES_DB:-bond_trading}
+      BOND_TRADING__ENVIRONMENT: development
+      BOND_TRADING__MOEX__PASSPORT_LOGIN: ${BOND_TRADING__MOEX__PASSPORT_LOGIN:-}
+      BOND_TRADING__MOEX__PASSPORT_PASSWORD: ${BOND_TRADING__MOEX__PASSPORT_PASSWORD:-}
+      BOND_TRADING__MOEX__REQUIRE_AUTH: ${BOND_TRADING__MOEX__REQUIRE_AUTH:-false}
+      BOND_TRADING__GOOGLE_SHEETS__ENABLED: ${BOND_TRADING__GOOGLE_SHEETS__ENABLED:-false}
+      BOND_TRADING__GOOGLE_SHEETS__CREDENTIALS_FILE: ${BOND_TRADING__GOOGLE_SHEETS__CREDENTIALS_FILE:-/run/secrets/google-service-account.json}
+      BOND_TRADING__GOOGLE_SHEETS__WORKER_POLL_SECONDS: ${BOND_TRADING__GOOGLE_SHEETS__WORKER_POLL_SECONDS:-5}
+      BOND_TRADING__GOOGLE_SHEETS__DEFAULT_SYNC_INTERVAL_SECONDS: ${BOND_TRADING__GOOGLE_SHEETS__DEFAULT_SYNC_INTERVAL_SECONDS:-300}
+    volumes:
+      - ./secrets:/run/secrets:ro
 
   prometheus:
     image: prom/prometheus:v3.8.1

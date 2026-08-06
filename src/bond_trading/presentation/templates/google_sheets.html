@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Google Таблица · Bond Trading{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Автоматическое обновление</p>
+    <h1>Google Таблица заказчика</h1>
+    <p class="muted">Приложение читает ISIN и данные покупки, а результат пишет в назначенные колонки и AD:AL. Остальные формулы не перезаписываются.</p>
+  </div>
+</div>
+
+{% if message %}<div class="card success">{{ message }}</div>{% endif %}
+{% if error %}<div class="card error">{{ error }}</div>{% endif %}
+{% if not google_api_enabled %}<div class="warning">Google API пока выключен на сервере. Настройки можно сохранить и проверить тестами, но реальная синхронизация начнётся после добавления service account.</div>{% endif %}
+
+<div class="grid two">
+  <section class="card">
+    <h2>Подключение</h2>
+    <form class="form-stack" method="post" action="/integrations/google-sheets">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Ссылка или ID Google Таблицы
+        <input name="spreadsheet_id" required value="{{ connection.spreadsheet_id if connection else '' }}" placeholder="https://docs.google.com/spreadsheets/d/…">
+      </label>
+      <label>Название вкладки
+        <input name="worksheet_name" required value="{{ connection.worksheet_name if connection else 'Доход счёт 2026' }}">
+      </label>
+      <div class="grid two compact-grid">
+        <label>Строка заголовка
+          <input type="number" name="header_row" min="1" max="1000" value="{{ connection.header_row if connection else 2 }}">
+        </label>
+        <label>Интервал, секунд
+          <input type="number" name="sync_interval_seconds" min="60" max="86400" value="{{ connection.sync_interval_seconds if connection else default_sync_interval_seconds }}">
+        </label>
+        <label>Колонка ISIN
+          <input name="isin_column" maxlength="3" value="{{ connection.isin_column if connection else 'B' }}">
+        </label>
+        <label>Колонка текущей цены
+          <input name="price_column" maxlength="3" value="{{ connection.price_column if connection else 'X' }}">
+        </label>
+        <label>Колонка времени, необязательно
+          <input name="updated_at_column" maxlength="3" value="{{ connection.updated_at_column or '' if connection else '' }}">
+        </label>
+        <label>Колонка статуса, необязательно
+          <input name="status_column" maxlength="3" value="{{ connection.status_column or '' if connection else '' }}">
+        </label>
+      </div>
+      <label>Какую цену записывать
+        <select name="price_mode">
+          {% for mode in price_modes %}
+          <option value="{{ mode.value }}" {% if (connection and connection.price_mode == mode) or (not connection and mode.value == 'best_offer_clean_rub') %}selected{% endif %}>
+            {% if mode.value == 'best_bid_percent' %}Лучшая заявка на покупку (BID), % от номинала{% elif mode.value == 'best_bid_clean_rub' %}Лучшая заявка на покупку (BID), ₽ за облигацию{% elif mode.value == 'best_bid_full_rub' %}BID с НКД, ₽ за облигацию{% elif mode.value == 'best_offer_percent' %}Лучшее предложение (OFFER), % от номинала{% elif mode.value == 'best_offer_full_rub' %}OFFER с НКД, ₽ за облигацию{% else %}Лучшее предложение (OFFER), ₽ за облигацию{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="checkbox-row"><input type="checkbox" name="enabled" value="true" {% if connection and connection.enabled %}checked{% endif %}> Включить автоматическое обновление</label>
+      <button>Сохранить настройки</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Состояние</h2>
+    {% if connection %}
+    <dl>
+      <dt>Последняя попытка</dt><dd>{{ connection.last_attempt_at or '—' }}</dd>
+      <dt>Последний успех</dt><dd>{{ connection.last_success_at or '—' }}</dd>
+      <dt>Последняя ошибка</dt><dd>{{ connection.last_error or '—' }}</dd>
+      <dt>Режим цены</dt><dd>{{ connection.price_mode.value }}</dd>
+    </dl>
+    <div class="button-row">
+      <form method="post" action="/integrations/google-sheets/test"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Проверить доступ</button></form>
+      <form method="post" action="/integrations/google-sheets/sync"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Обновить сейчас</button></form>
+      <a class="button-link secondary" target="_blank" rel="noopener" href="https://docs.google.com/spreadsheets/d/{{ connection.spreadsheet_id }}/edit">Открыть таблицу</a>
+    </div>
+    {% else %}<p class="empty">Сначала сохраните подключение.</p>{% endif %}
+  </section>
+</div>
+
+<section class="card table-wrap">
+  <h2>Последние синхронизации</h2>
+  <table>
+    <thead><tr><th>Создана</th><th>Причина</th><th>Статус</th><th>Строк прочитано</th><th>Строк обновлено</th><th>Ошибка</th></tr></thead>
+    <tbody>
+      {% for job in jobs %}<tr><td>{{ job.created_at }}</td><td>{{ trigger_labels[job.trigger] }}</td><td><span class="status {{ job.status.value }}">{{ status_labels[job.status] }}</span></td><td>{{ job.rows_read }}</td><td>{{ job.rows_updated }}</td><td>{{ job.error_message or '—' }}</td></tr>
+      {% else %}<tr><td colspan="6" class="empty">Синхронизаций ещё не было.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

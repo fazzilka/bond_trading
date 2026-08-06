@@ -41,5 +41,14 @@ bootstrap_user1_email = "user1@bond-trading.local"
 bootstrap_user2_username = "user2"
 bootstrap_user2_email = "user2@bond-trading.local"
 
+[google_sheets]
+enabled = false
+credentials_file = "secrets/google-service-account.json"
+api_base_url = "https://sheets.googleapis.com/v4"
+timeout_seconds = 15.0
+retries = 3
+worker_poll_seconds = 5.0
+default_sync_interval_seconds = 300
+
 [logging]
 level = "INFO"

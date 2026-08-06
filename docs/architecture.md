@@ -43,7 +43,8 @@ tests/                    unit, integration, opt-in live
 ## Runtime
 
 Composition root создаёт один `Database`, переиспользуемый HTTPX `AsyncClient`,
-`MoexIssClient`, `MinioObjectStorage` и in-memory cache preview на lifespan FastAPI.
+`MoexIssClient`, `MinioObjectStorage`, адаптер Google Sheets и in-memory cache preview
+на lifespan FastAPI.
 При старте проверяется/создаётся bucket и bootstrap-пользователи. Сессия SQLAlchemy
 создаётся на запрос и откатывается при исключении. Простые FastAPI dependencies
 оставлены вместо отдельного DI-фреймворка: текущий граф зависимостей мал, а тестовые
@@ -59,7 +60,7 @@ latency для Prometheus.
 - `BondLotModel` — отдельная покупка; одинаковые ISIN не объединяются.
 - `CorporateActionModel` — coupon, amortization, offer и maturity с hash исходной
   строки для дедупликации.
-- `MarketSnapshotModel` — bid, глубина, НКД, номинал, timestamps, статус и сырой
+- `MarketSnapshotModel` — BID/OFFER, глубина, НКД, номинал, timestamps, статус и сырой
   диагностический payload.
 - `YieldSnapshotModel` — неизменяемый результат конкретного расчёта и версия формулы.
 - `ImportBatchModel` — audit импорта по checksum и листу.
@@ -67,6 +68,9 @@ latency для Prometheus.
 - `UserModel` — пользователь и роль; пароль хранится только как Argon2 hash.
 - `AuthSessionModel` — hash непрозрачного session token, CSRF hash, expiry и отзыв.
 - `AppSettingModel` — одна строка настроек расчёта на пользователя.
+- `SheetConnectionModel` — адрес таблицы, карта колонок, режим цены и расписание
+  конкретного пользователя.
+- `SheetSyncJobModel` — очередь, попытки и аудит синхронизации Google Таблицы.
 
 `BondLotModel`, `ImportBatchModel`, `UploadedFileModel` и `AppSettingModel` связаны с
 владельцем. Справочник инструментов и данные MOEX общие, потому что это внешние
@@ -104,6 +108,16 @@ override не уничтожает внешний номинал.
 инструменты и отдельный lot на каждую корректную строку. Ошибочные строки остаются в
 отчёте batch и не отменяют корректные.
 
+### Google Таблица
+
+Отдельный worker создаёт задания по расписанию и забирает их через
+`FOR UPDATE SKIP LOCKED`. Синхронизация читает только выбранную колонку ISIN,
+дедуплицирует бумаги внутри запуска, обновляет котировки через тот же application
+service и отправляет в Google точечный `values:batchUpdate`. Формулы и все колонки,
+которые пользователь не назначил явно, не входят в запрос записи. События импорта,
+лотов, настроек и ручного обновления MOEX создают внеплановое задание. Ожидающие
+задания объединяются, а событие во время выполнения создаёт один следующий запуск.
+
 ## Конфигурация
 
 Настройки читаются из environment и необязательного `config.toml`. Environment имеет
@@ -114,7 +128,8 @@ override не уничтожает внешний номинал.
 
 Docker image — multi-stage, зависимости устанавливаются из `uv.lock`, runtime идёт от
 непривилегированного пользователя. Compose содержит `postgres`, `minio`, одноразовый
-`migrate` и `backend`; Prometheus подключается только профилем `monitoring`.
+`migrate`, `backend` и `sheet-sync-worker`; Prometheus подключается только профилем
+`monitoring`.
 PostgreSQL не имеет опубликованного host-порта.
 
 Авторизация и разделение владельцев реализованы. TLS termination, резервное
