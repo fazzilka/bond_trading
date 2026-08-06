@@ -15,6 +15,7 @@
 - FastAPI, Pydantic v2, Uvicorn;
 - SQLAlchemy 2 async, asyncpg, PostgreSQL 18, Alembic;
 - MinIO/S3 для хранения оригиналов загруженных таблиц;
+- Google Sheets API и отдельный worker для обновления таблицы заказчика;
 - Argon2, непрозрачные серверные сессии и CSRF-защита;
 - openpyxl, python-calamine и numbers-parser для таблиц Excel и Apple Numbers;
 - HTTPX и Tenacity для MOEX ISS;
@@ -37,7 +38,7 @@ docker compose up --build -d
 curl http://127.0.0.1:8000/health
 ```
 
-Миграции применяет одноразовый сервис `migrate`; backend стартует только после его
+Миграции применяет одноразовый сервис `migrate`; backend и worker стартуют только после его
 успешного завершения, а MinIO — после проверки готовности bucket API. Интерфейс
 доступен на <http://127.0.0.1:8000/login>, OpenAPI — на
 <http://127.0.0.1:8000/docs>, локальная консоль MinIO — на
@@ -131,6 +132,8 @@ uv run alembic upgrade head --sql
 `20260725_0002_users_storage.py` добавляет пользователей, серверные сессии, владельцев
 данных и метаданные S3-файлов. При обновлении существующие однопользовательские данные
 не удаляются: они переходят отключённому служебному владельцу `legacy-owner`.
+`20260801_0003_google_sheets_sync.py` добавляет пользовательские подключения Google
+Таблиц и журнал заданий синхронизации.
 
 ## Импорт портфеля
 
@@ -201,6 +204,22 @@ bucket MinIO, затем проходит preview и только после п�
 - `GET /api/v1/settings`;
 - `PATCH /api/v1/settings`.
 
+Google Таблицы:
+
+- `GET /api/v1/integrations/google-sheets`;
+- `PUT /api/v1/integrations/google-sheets`;
+- `POST /api/v1/integrations/google-sheets/test`;
+- `POST /api/v1/integrations/google-sheets/sync`;
+- `GET /api/v1/integrations/google-sheets/jobs`;
+- `GET /api/v1/integrations/google-sheets/jobs/{job_id}`.
+
+Подключение настраивается через `/integrations/google-sheets`. Приложение читает
+ISIN и исходные значения покупки, записывает лучшее предложение MOEX, НКД,
+состоявшиеся купоны и текущую годовую доходность в зарезервированные колонки;
+остальные формулы заказчика остаются на месте. Публичный MOEX ISS не требует
+API-ключа, а для Google нужен JSON-ключ service account. Полная настройка описана в
+[docs/google-sheets.md](docs/google-sheets.md).
+
 Ошибки API имеют поля `code`, `message`, `details` и `request_id`. Полные схемы и
 примеры доступны в OpenAPI. Все `/api/v1/*`, кроме `/api/v1/auth/login`, требуют
 сессию. Для программного клиента удобнее передать полученный при login токен как
@@ -245,6 +264,8 @@ RUN_LIVE_MOEX=1 uv run pytest -m live tests/live
   30 минут. Для нескольких backend-реплик потребуется Redis или другой общий cache.
 - `/health` проверяет жизнеспособность процесса, а не готовность MOEX или состояние
   всех данных портфеля.
+- Автоматическое обновление Google требует отдельного `sheet-sync-worker`; без него
+  ручные и плановые задания останутся в очереди.
 - Перед публикацией в Интернет обязательны уникальные пароли, TLS/reverse proxy,
   `secure_cookies=true`, резервное копирование PostgreSQL и MinIO, rate limiting
   login/API и отдельная эксплуатационная проверка безопасности.
@@ -257,6 +278,7 @@ RUN_LIVE_MOEX=1 uv run pytest -m live tests/live
 - [Архитектура](docs/architecture.md)
 - [Правила расчётов](docs/calculations.md)
 - [MOEX ISS и неоднозначные поля](docs/moex-data.md)
+- [Автоматическое обновление Google Таблицы](docs/google-sheets.md)
 - [Формат импорта](docs/import-format.md)
 - [Авторизация и роли](docs/authentication.md)
 - [MinIO и хранение файлов](docs/storage.md)
