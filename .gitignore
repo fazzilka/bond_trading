@@ -14,3 +14,5 @@ htmlcov/
 config.toml
 dist/
 build/
+secrets/*
+!secrets/.gitkeep
