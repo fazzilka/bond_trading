@@ -43,6 +43,9 @@ class MoexMarketData:
     bid_percent: Decimal | None
     bid_rub_per_bond: Decimal | None
     bid_depth_lots: Decimal | None
+    offer_percent: Decimal | None
+    offer_rub_per_bond: Decimal | None
+    offer_depth_lots: Decimal | None
     lot_size: Decimal
     current_face_value: Decimal | None
     accrued_interest_rub_per_bond: Decimal | None
