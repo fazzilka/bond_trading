@@ -39,6 +39,33 @@ class UserRole(StrEnum):
     ADMIN = "admin"
 
 
+class SheetPriceMode(StrEnum):
+    BEST_BID_PERCENT = "best_bid_percent"
+    BEST_BID_CLEAN_RUB = "best_bid_clean_rub"
+    BEST_BID_FULL_RUB = "best_bid_full_rub"
+    BEST_OFFER_PERCENT = "best_offer_percent"
+    BEST_OFFER_CLEAN_RUB = "best_offer_clean_rub"
+    BEST_OFFER_FULL_RUB = "best_offer_full_rub"
+
+
+class SheetSyncJobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class SheetSyncTrigger(StrEnum):
+    SCHEDULED = "scheduled"
+    MANUAL = "manual"
+    IMPORT_COMMITTED = "import_committed"
+    LOT_CREATED = "lot_created"
+    LOT_UPDATED = "lot_updated"
+    LOT_DELETED = "lot_deleted"
+    SETTINGS_CHANGED = "settings_changed"
+    MOEX_REFRESHED = "moex_refreshed"
+
+
 class UserModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
@@ -199,6 +226,9 @@ class MarketSnapshotModel(UuidPrimaryKeyMixin, Base):
     bid_percent: Mapped[Decimal | None] = mapped_column(PERCENT)
     bid_rub_per_bond: Mapped[Decimal | None] = mapped_column(MONEY)
     bid_depth_lots: Mapped[Decimal | None] = mapped_column(Numeric(24, 8))
+    offer_percent: Mapped[Decimal | None] = mapped_column(PERCENT)
+    offer_rub_per_bond: Mapped[Decimal | None] = mapped_column(MONEY)
+    offer_depth_lots: Mapped[Decimal | None] = mapped_column(Numeric(24, 8))
     lot_size: Mapped[Decimal] = mapped_column(Numeric(24, 8), default=Decimal(1))
     current_face_value: Mapped[Decimal | None] = mapped_column(MONEY)
     accrued_interest_rub_per_bond: Mapped[Decimal | None] = mapped_column(MONEY)
@@ -252,3 +282,65 @@ class AppSettingModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
     default_sale_commission_rub_per_bond: Mapped[Decimal] = mapped_column(MONEY, default=Decimal(0))
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
     formula_version: Mapped[str] = mapped_column(String(32), default="1.0.0")
+
+
+class SheetConnectionModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "sheet_connections"
+    __table_args__ = (UniqueConstraint("owner_id", "provider"),)
+
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(32), default="google_sheets")
+    spreadsheet_id: Mapped[str] = mapped_column(String(255))
+    worksheet_name: Mapped[str] = mapped_column(String(255))
+    header_row: Mapped[int] = mapped_column(Integer, default=1)
+    isin_column: Mapped[str] = mapped_column(String(8), default="A")
+    price_column: Mapped[str] = mapped_column(String(8), default="C")
+    updated_at_column: Mapped[str | None] = mapped_column(String(8))
+    status_column: Mapped[str | None] = mapped_column(String(8))
+    price_mode: Mapped[SheetPriceMode] = mapped_column(
+        Enum(
+            SheetPriceMode,
+            native_enum=False,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        default=SheetPriceMode.BEST_OFFER_CLEAN_RUB,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_payload_hash: Mapped[str | None] = mapped_column(String(64))
+
+
+class SheetSyncJobModel(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "sheet_sync_jobs"
+
+    connection_id: Mapped[UUID] = mapped_column(
+        ForeignKey("sheet_connections.id", ondelete="CASCADE"), index=True
+    )
+    trigger: Mapped[SheetSyncTrigger] = mapped_column(
+        Enum(
+            SheetSyncTrigger,
+            native_enum=False,
+            values_callable=lambda enum: [item.value for item in enum],
+        )
+    )
+    status: Mapped[SheetSyncJobStatus] = mapped_column(
+        Enum(
+            SheetSyncJobStatus,
+            native_enum=False,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        default=SheetSyncJobStatus.QUEUED,
+        index=True,
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rows_read: Mapped[int] = mapped_column(Integer, default=0)
+    rows_updated: Mapped[int] = mapped_column(Integer, default=0)
+    instruments_refreshed: Mapped[int] = mapped_column(Integer, default=0)
+    row_errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, default=list)
+    error_message: Mapped[str | None] = mapped_column(Text)
