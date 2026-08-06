@@ -6,10 +6,12 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bond_trading.application.services.sheets import enqueue_sheet_sync
 from bond_trading.infrastructure.db.models import (
     BondInstrumentModel,
     BondLotModel,
     ImportBatchModel,
+    SheetSyncTrigger,
     UploadedFileModel,
 )
 from bond_trading.infrastructure.imports import ImportPreview
@@ -152,6 +154,11 @@ class ImportService:
             uploaded_file = await self._session.get(UploadedFileModel, preview.upload_id)
             if uploaded_file is not None:
                 uploaded_file.status = "imported"
+        await enqueue_sheet_sync(
+            self._session,
+            self._owner_id,
+            SheetSyncTrigger.IMPORT_COMMITTED,
+        )
         await self._session.commit()
         await self._session.refresh(batch)
         return batch, False
