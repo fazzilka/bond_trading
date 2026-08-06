@@ -6,7 +6,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bond_trading.domain.calculations.models import TaxMode
-from bond_trading.infrastructure.db.models import BondLotModel, UserRole
+from bond_trading.infrastructure.db.models import (
+    BondLotModel,
+    SheetPriceMode,
+    SheetSyncJobStatus,
+    SheetSyncTrigger,
+    UserRole,
+)
 
 
 class InstrumentOut(BaseModel):
@@ -40,6 +46,9 @@ class MarketSnapshotOut(BaseModel):
     bid_percent: Decimal | None
     bid_rub_per_bond: Decimal | None
     bid_depth_lots: Decimal | None
+    offer_percent: Decimal | None
+    offer_rub_per_bond: Decimal | None
+    offer_depth_lots: Decimal | None
     lot_size: Decimal
     current_face_value: Decimal | None
     accrued_interest_rub_per_bond: Decimal | None
@@ -329,5 +338,68 @@ class UploadedFileOut(BaseModel):
     checksum: str
     status: str
     parse_error: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SheetConnectionUpdate(BaseModel):
+    spreadsheet_id: str = Field(min_length=10, max_length=1000)
+    worksheet_name: str = Field(min_length=1, max_length=255)
+    header_row: int = Field(default=1, ge=1, le=1000)
+    isin_column: str = Field(default="A", min_length=1, max_length=3)
+    price_column: str = Field(default="C", min_length=1, max_length=3)
+    updated_at_column: str | None = Field(default=None, max_length=3)
+    status_column: str | None = Field(default=None, max_length=3)
+    price_mode: SheetPriceMode = SheetPriceMode.BEST_OFFER_CLEAN_RUB
+    enabled: bool = False
+    sync_interval_seconds: int = Field(default=300, ge=60, le=86_400)
+
+
+class SheetConnectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    owner_id: UUID
+    provider: str
+    spreadsheet_id: str
+    worksheet_name: str
+    header_row: int
+    isin_column: str
+    price_column: str
+    updated_at_column: str | None
+    status_column: str | None
+    price_mode: SheetPriceMode
+    enabled: bool
+    sync_interval_seconds: int
+    last_attempt_at: datetime | None
+    last_success_at: datetime | None
+    last_error: str | None
+    last_payload_hash: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SheetConnectionCheckOut(BaseModel):
+    spreadsheet_title: str
+    worksheet_name: str
+    status: str = "доступ подтверждён"
+
+
+class SheetSyncJobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    connection_id: UUID
+    trigger: SheetSyncTrigger
+    status: SheetSyncJobStatus
+    attempt_count: int
+    next_attempt_at: datetime | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    rows_read: int
+    rows_updated: int
+    instruments_refreshed: int
+    row_errors: list[dict[str, Any]]
+    error_message: str | None
     created_at: datetime
     updated_at: datetime
