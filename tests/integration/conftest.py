@@ -18,6 +18,7 @@ from bond_trading.application.services.imports import ImportPreviewCache
 from bond_trading.infrastructure.db import Base
 from bond_trading.infrastructure.db.models import AuthSessionModel, UserModel, UserRole
 from bond_trading.infrastructure.db.session import get_session
+from bond_trading.infrastructure.google_sheets import MemoryGoogleSheetsGateway
 from bond_trading.infrastructure.storage import MemoryObjectStorage
 from bond_trading.main import create_app
 
@@ -90,6 +91,7 @@ async def app_client(
     app.state.import_cache = ImportPreviewCache(1800)
     app.state.moex_client = None
     app.state.object_storage = MemoryObjectStorage()
+    app.state.google_sheets_gateway = MemoryGoogleSheetsGateway()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client, session_factory, app
