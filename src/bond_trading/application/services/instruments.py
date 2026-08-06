@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,7 +11,11 @@ from bond_trading.infrastructure.db.models import (
     CorporateActionModel,
     MarketSnapshotModel,
 )
-from bond_trading.infrastructure.moex import MoexIssClient
+from bond_trading.infrastructure.moex.schemas import MoexRefreshResult
+
+
+class MoexRefreshClient(Protocol):
+    async def refresh(self, isin: str, *, force: bool = True) -> MoexRefreshResult: ...
 
 
 class InstrumentService:
@@ -37,7 +41,7 @@ class InstrumentService:
         return await self._session.get(BondInstrumentModel, instrument_id)
 
     async def refresh(
-        self, isin: str, client: MoexIssClient
+        self, isin: str, client: MoexRefreshClient
     ) -> tuple[BondInstrumentModel, MarketSnapshotModel]:
         normalized_isin = normalize_isin(isin)
         instrument = await self.get_by_isin(normalized_isin)
@@ -105,6 +109,9 @@ class InstrumentService:
             bid_percent=result.market.bid_percent,
             bid_rub_per_bond=result.market.bid_rub_per_bond,
             bid_depth_lots=result.market.bid_depth_lots,
+            offer_percent=result.market.offer_percent,
+            offer_rub_per_bond=result.market.offer_rub_per_bond,
+            offer_depth_lots=result.market.offer_depth_lots,
             lot_size=result.market.lot_size,
             current_face_value=result.market.current_face_value,
             accrued_interest_rub_per_bond=result.market.accrued_interest_rub_per_bond,
