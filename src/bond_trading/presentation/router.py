@@ -12,10 +12,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bond_trading.api.auth_dependencies import CurrentWebAuth
-from bond_trading.api.dependencies import get_import_cache, get_object_storage
-from bond_trading.application.services import AuthService, LotService, SettingsService
+from bond_trading.api.dependencies import (
+    get_google_sheets_gateway,
+    get_import_cache,
+    get_object_storage,
+)
+from bond_trading.application.services import (
+    AuthService,
+    LotService,
+    SettingsService,
+    SheetSyncService,
+)
 from bond_trading.application.services.auth import AuthenticationError
 from bond_trading.application.services.imports import ImportPreviewCache, ImportService
+from bond_trading.application.services.sheets import enqueue_sheet_sync
 from bond_trading.application.services.uploads import UploadService
 from bond_trading.core.config import get_settings
 from bond_trading.domain.calculations import calculate_purchase, evaluate_liquidity
@@ -23,11 +33,15 @@ from bond_trading.domain.calculations.models import PurchaseInput, TaxMode
 from bond_trading.infrastructure.db.models import (
     BondInstrumentModel,
     MarketSnapshotModel,
+    SheetPriceMode,
+    SheetSyncJobStatus,
+    SheetSyncTrigger,
     UploadedFileModel,
     UserRole,
     YieldSnapshotModel,
 )
 from bond_trading.infrastructure.db.session import get_session
+from bond_trading.infrastructure.google_sheets import GoogleSheetsError, GoogleSheetsGateway
 from bond_trading.infrastructure.imports import (
     SpreadsheetImportError,
     SpreadsheetPortfolioReader,
@@ -41,6 +55,24 @@ router = APIRouter(include_in_schema=False)
 Session = Annotated[AsyncSession, Depends(get_session)]
 Cache = Annotated[ImportPreviewCache, Depends(get_import_cache)]
 Storage = Annotated[ObjectStorage, Depends(get_object_storage)]
+Sheets = Annotated[GoogleSheetsGateway, Depends(get_google_sheets_gateway)]
+
+SHEET_SYNC_TRIGGER_LABELS = {
+    SheetSyncTrigger.SCHEDULED: "По расписанию",
+    SheetSyncTrigger.MANUAL: "Вручную",
+    SheetSyncTrigger.IMPORT_COMMITTED: "Импорт подтверждён",
+    SheetSyncTrigger.LOT_CREATED: "Лот добавлен",
+    SheetSyncTrigger.LOT_UPDATED: "Лот изменён",
+    SheetSyncTrigger.LOT_DELETED: "Лот удалён",
+    SheetSyncTrigger.SETTINGS_CHANGED: "Настройки изменены",
+    SheetSyncTrigger.MOEX_REFRESHED: "Данные MOEX обновлены",
+}
+SHEET_SYNC_STATUS_LABELS = {
+    SheetSyncJobStatus.QUEUED: "В очереди",
+    SheetSyncJobStatus.RUNNING: "Выполняется",
+    SheetSyncJobStatus.SUCCEEDED: "Успешно",
+    SheetSyncJobStatus.FAILED: "Ошибка",
+}
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -295,6 +327,7 @@ async def settings_update(
     value.tax_mode = tax_mode
     value.tax_rate = tax_rate
     value.default_sale_commission_rub_per_bond = default_sale_commission_rub_per_bond
+    await enqueue_sheet_sync(session, auth.user.id, SheetSyncTrigger.SETTINGS_CHANGED)
     await session.commit()
     return RedirectResponse("/settings", status_code=303)
 
@@ -319,6 +352,187 @@ async def data_status(request: Request, session: Session, auth: CurrentWebAuth) 
         request=request,
         name="data_status.html",
         context=_context(request, auth, rows=rows),
+    )
+
+
+@router.get("/integrations/google-sheets", response_class=HTMLResponse)
+async def google_sheets_page(
+    request: Request,
+    session: Session,
+    auth: CurrentWebAuth,
+) -> HTMLResponse:
+    service = SheetSyncService(session, auth.user.id)
+    return templates.TemplateResponse(
+        request=request,
+        name="google_sheets.html",
+        context=_context(
+            request,
+            auth,
+            connection=await service.get_connection(),
+            jobs=await service.list_jobs(),
+            price_modes=list(SheetPriceMode),
+            google_api_enabled=get_settings().google_sheets.enabled,
+            default_sync_interval_seconds=(
+                get_settings().google_sheets.default_sync_interval_seconds
+            ),
+            trigger_labels=SHEET_SYNC_TRIGGER_LABELS,
+            status_labels=SHEET_SYNC_STATUS_LABELS,
+            message=None,
+            error=None,
+        ),
+    )
+
+
+@router.post("/integrations/google-sheets")
+async def google_sheets_update(
+    request: Request,
+    auth: CurrentWebAuth,
+    session: Session,
+    csrf_token: Annotated[str, Form()],
+    spreadsheet_id: Annotated[str, Form()],
+    worksheet_name: Annotated[str, Form()],
+    header_row: Annotated[int, Form(ge=1, le=1000)],
+    isin_column: Annotated[str, Form()],
+    price_column: Annotated[str, Form()],
+    price_mode: Annotated[SheetPriceMode, Form()],
+    sync_interval_seconds: Annotated[int, Form(ge=60, le=86_400)],
+    updated_at_column: Annotated[str | None, Form()] = None,
+    status_column: Annotated[str | None, Form()] = None,
+    enabled: Annotated[bool, Form()] = False,
+) -> Response:
+    AuthService(session, get_settings().auth).verify_csrf(auth.session, csrf_token)
+    service = SheetSyncService(session, auth.user.id)
+    try:
+        connection = await service.configure(
+            {
+                "spreadsheet_id": spreadsheet_id,
+                "worksheet_name": worksheet_name,
+                "header_row": header_row,
+                "isin_column": isin_column,
+                "price_column": price_column,
+                "updated_at_column": updated_at_column,
+                "status_column": status_column,
+                "price_mode": price_mode,
+                "sync_interval_seconds": sync_interval_seconds,
+                "enabled": enabled,
+            }
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="google_sheets.html",
+            context=_context(
+                request,
+                auth,
+                connection=None,
+                jobs=await service.list_jobs(),
+                price_modes=list(SheetPriceMode),
+                google_api_enabled=get_settings().google_sheets.enabled,
+                default_sync_interval_seconds=(
+                    get_settings().google_sheets.default_sync_interval_seconds
+                ),
+                trigger_labels=SHEET_SYNC_TRIGGER_LABELS,
+                status_labels=SHEET_SYNC_STATUS_LABELS,
+                message=None,
+                error=str(exc),
+            ),
+            status_code=422,
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="google_sheets.html",
+        context=_context(
+            request,
+            auth,
+            connection=connection,
+            jobs=await service.list_jobs(),
+            price_modes=list(SheetPriceMode),
+            google_api_enabled=get_settings().google_sheets.enabled,
+            default_sync_interval_seconds=(
+                get_settings().google_sheets.default_sync_interval_seconds
+            ),
+            trigger_labels=SHEET_SYNC_TRIGGER_LABELS,
+            status_labels=SHEET_SYNC_STATUS_LABELS,
+            message="Настройки Google Таблицы сохранены.",
+            error=None,
+        ),
+    )
+
+
+@router.post("/integrations/google-sheets/test")
+async def google_sheets_test(
+    request: Request,
+    auth: CurrentWebAuth,
+    session: Session,
+    sheets: Sheets,
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    AuthService(session, get_settings().auth).verify_csrf(auth.session, csrf_token)
+    service = SheetSyncService(session, auth.user.id)
+    message: str | None = None
+    error: str | None = None
+    try:
+        _, title = await service.check_connection(sheets)
+        message = f"Доступ подтверждён: {title}"
+    except (ValueError, GoogleSheetsError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request=request,
+        name="google_sheets.html",
+        context=_context(
+            request,
+            auth,
+            connection=await service.get_connection(),
+            jobs=await service.list_jobs(),
+            price_modes=list(SheetPriceMode),
+            google_api_enabled=get_settings().google_sheets.enabled,
+            default_sync_interval_seconds=(
+                get_settings().google_sheets.default_sync_interval_seconds
+            ),
+            trigger_labels=SHEET_SYNC_TRIGGER_LABELS,
+            status_labels=SHEET_SYNC_STATUS_LABELS,
+            message=message,
+            error=error,
+        ),
+        status_code=200 if error is None else 503,
+    )
+
+
+@router.post("/integrations/google-sheets/sync")
+async def google_sheets_sync(
+    request: Request,
+    auth: CurrentWebAuth,
+    session: Session,
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    AuthService(session, get_settings().auth).verify_csrf(auth.session, csrf_token)
+    service = SheetSyncService(session, auth.user.id)
+    message: str | None = None
+    error: str | None = None
+    try:
+        job = await service.enqueue(SheetSyncTrigger.MANUAL)
+        message = f"Задание {job.id} поставлено в очередь."
+    except ValueError as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request=request,
+        name="google_sheets.html",
+        context=_context(
+            request,
+            auth,
+            connection=await service.get_connection(),
+            jobs=await service.list_jobs(),
+            price_modes=list(SheetPriceMode),
+            google_api_enabled=get_settings().google_sheets.enabled,
+            default_sync_interval_seconds=(
+                get_settings().google_sheets.default_sync_interval_seconds
+            ),
+            trigger_labels=SHEET_SYNC_TRIGGER_LABELS,
+            status_labels=SHEET_SYNC_STATUS_LABELS,
+            message=message,
+            error=error,
+        ),
+        status_code=200 if error is None else 422,
     )
 
 
